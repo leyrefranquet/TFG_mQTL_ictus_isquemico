@@ -1,6 +1,6 @@
 ---
 title: "Untitled"
-author: "Leyre FRanquet"
+author: "Leyre Franquet"
 date: "2026-04-17"
 output: html_document
 ---
