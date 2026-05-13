@@ -1,0 +1,205 @@
+---
+title: "Heterogeneity"
+author: "Jara Cárcel"
+date: "2026-03-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Functions
+
+```{r}
+filter_snps <- function(df) {
+  df_filtered <- df[df$Freq >= 0.001 & df$Freq <= 0.999, ]
+#  df_filtered <- df_filtered[df_filtered$A1 %in% c("A","C","T","G") & df_filtered$A2 %in% c("A","C","T","G"),]
+  df_filtered <- df_filtered[!duplicated(df_filtered$BP),]
+  return(df_filtered)
+}
+
+
+    calc_meta_pair <- function(b1, se1, b2, se2) {
+  # varianzas y pesos
+      v1 <- se1^2
+      v2 <- se2^2
+      w1 <- 1 / v1
+      w2 <- 1 / v2
+      wsum <- w1 + w2
+      
+      # beta combinado y SE combinado
+      beta_FE <- (w1 * b1 + w2 * b2) / wsum
+      se_FE <- sqrt(1 / wsum)
+      
+      # Q de heterogeneidad
+      Q <- w1 * (b1 - beta_FE)^2 + w2 * (b2 - beta_FE)^2
+      pval <- pchisq(Q, df = 1, lower.tail = FALSE)
+      I2 <- ifelse(Q <= 1, 0, pmax(0, (Q - 1) / Q) * 100)
+      
+      list(beta_FE = beta_FE, se_FE = se_FE, Q = Q, P = pval, I2 = I2)
+    }
+ 
+
+```
+
+# Add the heterogeneity value in summary
+```{r}
+library(data.table)
+
+mqtl_annotations <- fread("/home/jcarcel/Documents/Projects/01.mQTLs/results/osca_maf5/mQTL_allchr_MAF5_LEAD.txt")
+
+newcols <- c("Freq_ca","b_ca","SE_ca","p_ca",
+             "Freq_co","b_co","SE_co","p_co",
+             "beta_caco","se_caco","Q_caco","P_caco","I2_caco")
+
+mqtl_annotations[, (newcols) := -9]
+
+mqtl_annotations_casesig <- mqtl_annotations[mqtl_annotations$mQTL_ca=="Significant mQTL"]
+mqtl_annotations_ctrlsig <- mqtl_annotations[mqtl_annotations$mQTL_co=="Significant mQTL"]
+
+mqtl_annotations <- mqtl_annotations[
+  mqtl_annotations$ProbeID %in% mqtl_annotations_casesig$ProbeID |
+  mqtl_annotations$ProbeID %in% mqtl_annotations_ctrlsig$ProbeID
+]
+
+library(data.table)
+
+mqtl <- fread("/home/jcarcel/Documents/Projects/01.mQTLs/results/osca_maf5/mQTL_allchr_MAF5_LEAD.txt")
+
+dir.create("/home/jcarcel/Documents/Projects/01.mQTLs/results/heterogeneity", showWarnings=FALSE)
+
+for(i in 1:nrow(mqtl)){
+
+  probe <- mqtl$ProbeID[i]
+
+  outfile <- paste0(
+    "/home/jcarcel/Documents/Projects/01.mQTLs/results/heterogeneity/heterogeneity_probe",
+    probe,
+    ".txt.gz"
+  )
+
+  fwrite(mqtl[i], outfile, sep="\t")
+}
+
+for(i in 1:nrow(mqtl_annotations)){
+
+    probe <- mqtl_annotations[i,]$ProbeID
+
+    het <- fread(paste0(
+      "/home/jcarcel/Documents/Projects/01.mQTLs/results/heterogeneity/heterogeneity_probe",
+      probe,
+      ".txt.gz"
+    ))
+    
+    het[, SNP := gsub("chr","",SNP)]
+    
+    if(probe %in% mqtl_annotations_casesig$ProbeID){
+
+      snp <- mqtl_annotations_casesig[mqtl_annotations_casesig$ProbeID==probe,]$mQTL_ca_lead
+       snp <- gsub("chr","",snp)
+
+      row <- het[het$SNP == snp, 2:9]
+      if(nrow(row) > 0){
+        mqtl_annotations_casesig[
+          mqtl_annotations_casesig$ProbeID == probe,
+          10:17
+          ] <- row
+}
+
+    }
+
+    if(probe %in% mqtl_annotations_ctrlsig$ProbeID){
+
+      snp <- mqtl_annotations_ctrlsig[mqtl_annotations_ctrlsig$ProbeID==probe,]$mQTL_co_lead
+       snp <- gsub("chr","",snp)
+      row <- het[het$SNP == snp, 2:9]
+      if(nrow(row) > 0){
+        mqtl_annotations_ctrlsig[
+          mqtl_annotations_ctrlsig$ProbeID == probe,
+          10:17
+          ] <- row
+}
+    }
+}
+
+dir.create("/home/jcarcel/Documents/Projects/01.mQTLs/results/mqtls", 
+           recursive = TRUE)
+fwrite(mqtl_annotations_casesig,
+       file="/home/jcarcel/Documents/Projects/01.mQTLs/results/mqtls/mqtls_cases_hetres_MAF5.txt.gz",
+       col.names=TRUE,row.names=FALSE,quote=FALSE,sep="\t")
+
+fwrite(mqtl_annotations_ctrlsig,
+       file="/home/jcarcel/Documents/Projects/01.mQTLs/results/mqtls/mqtls_controls_hetres_MAF5.txt.gz",
+       col.names=TRUE,row.names=FALSE,quote=FALSE,sep="\t")
+
+## para ordenar los chr en orden
+a <- fread("~/Documents/Projects/01.mQTLs/results/mqtls/mQTL_MAF5_LEAD_heterogeneity.txt")
+setorder(a, CHR, BP)
+fwrite(
+  a,
+  "/home/jcarcel/Documents/Projects/01.mQTLs/results/mqtls/mQTL_MAF5_LEAD_heterogeneity_sorted.txt",
+  sep="\t"
+)
+```
+
+REVISION
+```{r}
+chr = 22 
+mqtl_chr_ca <- fread(paste0("~/Documents/Projects/01.mQTLs/results/osca_maf5/cases/mqtl_cases_chr",chr,"_sum.gz")) 
+mqtl_chr_ca <- mqtl_chr_ca[mqtl_chr_ca$Probe%in%mqtl_annotations$ProbeID,] 
+
+mqtl_chr_co<-fread(paste0("~/Documents/Projects/01.mQTLs/results/osca_maf5/controls/mqtl_controls_chr",chr,"_sum.gz")) 
+mqtl_chr_co <- mqtl_chr_co[mqtl_chr_co$Probe%in%mqtl_annotations$ProbeID,] 
+
+mqtl_chr_ca <- mqtl_chr_ca[mqtl_chr_ca$SNP%in%mqtl_chr_co$SNP,] 
+
+mqtl_chr_co <- mqtl_chr_co[mqtl_chr_co$SNP%in% mqtl_chr_ca$SNP,] 
+
+mqtl_chr_ca <- mqtl_chr_ca[,c(1:5,7:11,6,12:14)] 
+colnames(mqtl_chr_ca)[11:14] <- paste0(colnames(mqtl_chr_ca)[11:14] ,"_ca") 
+
+mqtl_chr_co <- mqtl_chr_co[,c(6,12:14)] 
+colnames(mqtl_chr_co) <- paste0(colnames(mqtl_chr_co),"_co")
+
+mqtl_chr <- cbind(mqtl_chr_ca, mqtl_chr_co)
+
+# ---1️⃣ p vs c ---  para calcular la heterogeneidad
+res <- calc_meta_pair(mqtl_chr$b_ca, mqtl_chr$SE_ca, mqtl_chr$b_co, mqtl_chr$SE_co)
+mqtl_chr[, `:=`(
+      beta_het = res$beta_FE,
+      se_het = res$se_FE,
+      Q_het  = res$Q,
+      P_het  = res$P,
+      I2_het   = res$I2
+    )]
+
+
+```
+
+
+
+COMPROBACIONES
+```{r}
+summary(a$P_caco)
+summary(a$I2_caco)
+# VER CUANTAS CPG TIENEN HETEROGENEIDAD CALCULADA
+sum(!is.na(a$P_caco)) #3138CpG tienen el SNP líder presente en casos y controles
+#VER CUANTAS TIENEN HETEROGENEIDAD SIGNIFICATIVA
+sum(a$P_caco < 0.05, na.rm = TRUE) #389 muestran diferencias signiifcativas entre casos y controled
+# CALCULAR % HETEROGENEIDAD
+389 / 3138 * 100 #aprox el 12.39% de mQTL evaluables tienen heterogeneidad significativa entre casos y controles
+
+# VER QUE CPG TIENEN MAYOR HETEROGENEIDAD (TOP10)
+a[order(-I2_caco)][1:10]
+
+## FILTRAR CPG CON HETEROG SIGNIFICATIVA, ORDENARLAS POR I2 Y MIRAR LOS GENES IMPLICADOS
+het_sig <- a[P_caco < 0.05]
+het_sig <- het_sig[order(-I2_caco)] # LAS PRIMERAS SON LAS MQTL MÁS DIFERENTES ENTRE CASOS Y CONTROLES
+fwrite(
+  het_sig,
+  "/home/jcarcel/Documents/Projects/01.mQTLs/results/mqtls/mQTL_heterogeneity_significant.txt",
+  sep="\t"
+)
+```
+

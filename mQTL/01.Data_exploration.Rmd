@@ -1,0 +1,1082 @@
+---
+title: ''
+author: "Jara Cárcel"
+date: "2026-02-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(data.table)
+cpg_annotations <- fread("../data/cpgs_annotations.opi")
+colnames(cpg_annotations)[1:5] <- c("CHR","ProbeID","BP","GeneID","Strand")
+```
+
+```{r}
+cpg_annotations$mQTL_ca <- "Not evaluted"
+cpg_annotations$mQTL_ca_lead <- ""
+cpg_annotations$mQTL_co <- "Not evaluted"
+cpg_annotations$mQTL_co_lead <- ""
+
+# mqtl_allchr <- list()
+
+#CROMOSOMA 22
+
+path_cases <- "/home/jcarcel/Documents/Projects/01.mQTLs/results/osca/cases/mqtl_cases_chr22_sum.gz"
+path_controls <- "/home/jcarcel/Documents/Projects/01.mQTLs/results/osca/controls/mqtl_controls_chr22_sum.gz"
+
+chr_cases <- fread(path_cases)
+chr_controls <- fread(path_controls)
+
+probes22 <- cpg_annotations[CHR==22, unique(ProbeID)]
+chr_cases    <- chr_cases[chr_cases$Probe %in% probes22,]
+chr_controls <- chr_controls[Probe %in% probes22]
+
+# crear columna z
+prep_sig <- function(dt, group_name){
+  dt <- dt[Freq >= 0.01 & Freq <= 0.99]
+  dt[, z := b / SE]
+  dt <- dt[p < 5e-8]
+  dt[, group := group_name]
+  dt
+}
+
+sig_cases <- prep_sig(chr_cases, "cases")
+sig_ctrl  <- prep_sig(chr_controls, "controls")
+
+#hacer lista con toda la info 
+mqtl_all_chr22 <- rbindlist(list(sig_cases, sig_ctrl), use.names=TRUE, fill=TRUE)
+mqtl_all_chr22[, CHR := 22]  # por claridad
+
+# añadir anotación CpG a la lista
+ann22 <- cpg_annotations[CHR==22, .(ProbeID,BP,GeneID,Strand)]
+mqtl_all_chr22 <- merge(mqtl_all_chr22, ann22, by.x="Probe", by.y="ProbeID", all.x=TRUE)
+
+
+lead_cases <- mqtl_all_chr22[group=="cases"][order(p), .SD[1], by=.(Probe)]
+lead_ctrl  <- mqtl_all_chr22[group=="controls"][order(p), .SD[1], by=.(Probe)]
+    
+# ------ CASOS ------
+idx_ca <- match(cpg_annotations[CHR==22, ProbeID], lead_cases$Probe)
+has_ca <- !is.na(idx_ca)
+cpg_annotations[CHR==22 & has_ca, mQTL_ca := "Significant mQTL"]
+cpg_annotations[CHR==22 & has_ca, mQTL_ca_lead := lead_cases$SNP[idx_ca[has_ca]]]
+cpg_annotations[CHR==22 & !has_ca, mQTL_ca := "Non Significant mQTL"]
+
+# ------ CONTROLES ------
+idx_co <- match(cpg_annotations[CHR==22, ProbeID], lead_ctrl$Probe)
+has_co <- !is.na(idx_co)
+cpg_annotations[CHR==22 & has_co, mQTL_co := "Significant mQTL"]
+cpg_annotations[CHR==22 & has_co, mQTL_co_lead := lead_ctrl$SNP[idx_co[has_co]]]
+cpg_annotations[CHR==22 & !has_co, mQTL_co := "Non Significant mQTL"]
+
+
+# guardar todo
+fwrite(cpg_annotations[cpg_annotations$CHR==22],
+       file="../results/osca/mQTL_description_results_chr22.txt",
+       col.names=TRUE, row.names=FALSE, quote=FALSE, sep="\t")
+
+fwrite(mqtl_all_chr22,
+       file="../results/osca/mQTL_all_significant_chr22_cases_controls_withZ.txt",
+       col.names=TRUE, row.names=FALSE, quote=FALSE, sep="\t")
+
+# eliminar columnas duplicadas + reordenarlas
+setnames(mqtl_all_chr22, "BP.x", "SNP_BP")
+setnames(mqtl_all_chr22, "BP.y", "CpG_BP")
+
+mqtl_all_chr22[, c("Chr", "Probe_Chr", "Gene", "Orientation") := NULL]
+
+setcolorder(mqtl_all_chr22,
+            c("Probe","GeneID","Strand",
+              "SNP","CHR","SNP_BP","CpG_BP",
+              "A1","A2","Freq",
+              "b","SE","z","p",
+              "group"))
+
+# BORRAR TODAS AQUELLAS FILAS EN QUE EN LA COLUMNA GENEID HAY UN -NA
+sum(grepl("_NA$", mqtl_all_chr22$GeneID))
+dim(mqtl_all_chr22)
+
+mqtl_all_chr22 <- mqtl_all_chr22[!grepl("_NA$", GeneID)]
+
+dim(mqtl_all_chr22)
+
+#GUARDAR EL ARCHIVO
+fwrite(mqtl_all_chr22,
+       file = "../results/osca/mQTL_all_chr22_clean.txt",
+       sep = "\t",
+       quote = FALSE)
+
+# en la lista global añado la info del chr 22
+# mqtl_allchr[[length(mqtl_allchr) + 1]] <- mqtl_all_chr22
+
+```
+
+```{r}
+# Inicializar columnas resumen (si ya lo has hecho antes, puedes saltarte estas 4 líneas)
+cpg_annotations$mQTL_ca <- "Not evaluted"
+cpg_annotations$mQTL_ca_lead <- ""
+cpg_annotations$mQTL_co <- "Not evaluted"
+cpg_annotations$mQTL_co_lead <- ""
+
+# Lista global (si ya existe, NO volverla a correr
+mqtl_allchr <- list()
+
+# ======================
+# CROMOSOMA 1
+# ======================
+
+path_cases <- "/home/jcarcel/Documents/Projects/01.mQTLs/results/osca/cases/mqtl_cases_chr1_sum.gz"
+path_controls <- "/home/jcarcel/Documents/Projects/01.mQTLs/results/osca/controls/mqtl_controls_chr1_sum.gz"
+
+chr_cases <- fread(path_cases)
+chr_controls <- fread(path_controls)
+
+probes1 <- cpg_annotations[CHR==1, unique(ProbeID)]
+chr_cases    <- chr_cases[Probe %in% probes1]
+chr_controls <- chr_controls[Probe %in% probes1]
+
+# crear columna z + filtrar significativos
+prep_sig <- function(dt, group_name){
+  dt <- dt[Freq >= 0.01 & Freq <= 0.99]
+  dt[, z := b / SE]
+  dt <- dt[p < 5e-8]
+  dt[, group := group_name]
+  dt
+}
+
+sig_cases <- prep_sig(chr_cases, "cases")
+sig_ctrl  <- prep_sig(chr_controls, "controls")
+
+# hacer lista con toda la info
+mqtl_all_chr1 <- rbindlist(list(sig_cases, sig_ctrl), use.names=TRUE, fill=TRUE)
+mqtl_all_chr1[, CHR := 1]
+
+# añadir anotación CpG a la lista
+ann1 <- cpg_annotations[CHR==1, .(ProbeID, BP, GeneID, Strand)]
+mqtl_all_chr1 <- merge(mqtl_all_chr1, ann1, by.x="Probe", by.y="ProbeID", all.x=TRUE)
+
+# lead SNP por Probe y grupo
+lead_cases <- mqtl_all_chr1[group=="cases"][order(p), .SD[1], by=.(Probe)]
+lead_ctrl  <- mqtl_all_chr1[group=="controls"][order(p), .SD[1], by=.(Probe)]
+
+# ------ CASOS ------
+idx_ca <- match(cpg_annotations[CHR==1, ProbeID], lead_cases$Probe)
+has_ca <- !is.na(idx_ca)
+cpg_annotations[CHR==1 & has_ca, mQTL_ca := "Significant mQTL"]
+cpg_annotations[CHR==1 & has_ca, mQTL_ca_lead := lead_cases$SNP[idx_ca[has_ca]]]
+cpg_annotations[CHR==1 & !has_ca, mQTL_ca := "Non Significant mQTL"]
+
+# ------ CONTROLES ------
+idx_co <- match(cpg_annotations[CHR==1, ProbeID], lead_ctrl$Probe)
+has_co <- !is.na(idx_co)
+cpg_annotations[CHR==1 & has_co, mQTL_co := "Significant mQTL"]
+cpg_annotations[CHR==1 & has_co, mQTL_co_lead := lead_ctrl$SNP[idx_co[has_co]]]
+cpg_annotations[CHR==1 & !has_co, mQTL_co := "Non Significant mQTL"]
+
+# eliminar columnas duplicadas + reordenarlas (si existen)
+setnames(mqtl_all_chr1, "BP.x", "SNP_BP", skip_absent=TRUE)
+setnames(mqtl_all_chr1, "BP.y", "CpG_BP", skip_absent=TRUE)
+
+mqtl_all_chr1[, intersect(c("Chr","Probe_Chr","Gene","Orientation"), names(mqtl_all_chr1)) := NULL]
+
+setcolorder(mqtl_all_chr1,
+            c("Probe","GeneID","Strand",
+              "SNP","CHR","SNP_BP","CpG_BP",
+              "A1","A2","Freq",
+              "b","SE","z","p",
+              "group"),
+            skip_absent=TRUE)
+
+# borrar filas con GeneID que terminan en _NA
+mqtl_all_chr1 <- mqtl_all_chr1[!grepl("_NA$", GeneID)]
+
+# guardar archivos
+fwrite(cpg_annotations,
+       file="../results/osca/mQTL_description_results_chr1.txt",
+       col.names=TRUE, row.names=FALSE, quote=FALSE, sep="\t")
+
+fwrite(mqtl_all_chr1,
+       file="../results/osca/mQTL_all_chr1_clean.txt",
+       sep="\t",
+       quote=FALSE)
+
+# añadir chr1 a la lista global
+mqtl_allchr[[length(mqtl_allchr) + 1]] <- mqtl_all_chr1
+```
+
+```{r}
+# ======================
+# CROMOSOMA 2
+# ======================
+
+path_cases <- "/home/jcarcel/Documents/Projects/01.mQTLs/results/osca/cases/mqtl_cases_chr2_sum.gz"
+path_controls <- "/home/jcarcel/Documents/Projects/01.mQTLs/results/osca/controls/mqtl_controls_chr2_sum.gz"
+
+chr_cases <- fread(path_cases)
+chr_controls <- fread(path_controls)
+
+probes2 <- cpg_annotations[CHR==2, unique(ProbeID)]
+chr_cases    <- chr_cases[Probe %in% probes2]
+chr_controls <- chr_controls[Probe %in% probes2]
+
+# crear columna z + filtrar significativos
+prep_sig <- function(dt, group_name){
+  dt <- dt[Freq >= 0.01 & Freq <= 0.99]
+  dt[, z := b / SE]
+  dt <- dt[p < 5e-8]
+  dt[, group := group_name]
+  dt
+}
+
+sig_cases <- prep_sig(chr_cases, "cases")
+sig_ctrl  <- prep_sig(chr_controls, "controls")
+
+# hacer lista con toda la info
+mqtl_all_chr2 <- rbindlist(list(sig_cases, sig_ctrl), use.names=TRUE, fill=TRUE)
+mqtl_all_chr2[, CHR := 2]
+
+# añadir anotación CpG a la lista
+ann2 <- cpg_annotations[CHR==2, .(ProbeID, BP, GeneID, Strand)]
+mqtl_all_chr2 <- merge(mqtl_all_chr2, ann2, by.x="Probe", by.y="ProbeID", all.x=TRUE)
+
+# lead SNP por Probe y grupo
+lead_cases <- mqtl_all_chr2[group=="cases"][order(p), .SD[1], by=.(Probe)]
+lead_ctrl  <- mqtl_all_chr2[group=="controls"][order(p), .SD[1], by=.(Probe)]
+
+# ------ CASOS ------
+idx_ca <- match(cpg_annotations[CHR==2, ProbeID], lead_cases$Probe)
+has_ca <- !is.na(idx_ca)
+cpg_annotations[CHR==2 & has_ca, mQTL_ca := "Significant mQTL"]
+cpg_annotations[CHR==2 & has_ca, mQTL_ca_lead := lead_cases$SNP[idx_ca[has_ca]]]
+cpg_annotations[CHR==2 & !has_ca, mQTL_ca := "Non Significant mQTL"]
+
+# ------ CONTROLES ------
+idx_co <- match(cpg_annotations[CHR==2, ProbeID], lead_ctrl$Probe)
+has_co <- !is.na(idx_co)
+cpg_annotations[CHR==2 & has_co, mQTL_co := "Significant mQTL"]
+cpg_annotations[CHR==2 & has_co, mQTL_co_lead := lead_ctrl$SNP[idx_co[has_co]]]
+cpg_annotations[CHR==2 & !has_co, mQTL_co := "Non Significant mQTL"]
+
+# eliminar columnas duplicadas + reordenarlas (si existen)
+setnames(mqtl_all_chr2, "BP.x", "SNP_BP", skip_absent=TRUE)
+setnames(mqtl_all_chr2, "BP.y", "CpG_BP", skip_absent=TRUE)
+
+mqtl_all_chr2[, intersect(c("Chr","Probe_Chr","Gene","Orientation"), names(mqtl_all_chr2)) := NULL]
+
+setcolorder(mqtl_all_chr2,
+            c("Probe","GeneID","Strand",
+              "SNP","CHR","SNP_BP","CpG_BP",
+              "A1","A2","Freq",
+              "b","SE","z","p",
+              "group"),
+            skip_absent=TRUE)
+
+# borrar filas con GeneID que terminan en _NA
+mqtl_all_chr2 <- mqtl_all_chr2[!grepl("_NA$", GeneID)]
+
+# guardar archivos
+fwrite(cpg_annotations,
+       file="../results/osca/mQTL_description_results_chr2.txt",
+       col.names=TRUE, row.names=FALSE, quote=FALSE, sep="\t")
+
+fwrite(mqtl_all_chr2,
+       file="../results/osca/mQTL_all_chr2_clean.txt",
+       sep="\t",
+       quote=FALSE)
+
+# añadir chr2 a la lista global
+mqtl_allchr[[length(mqtl_allchr) + 1]] <- mqtl_all_chr2
+
+# (opcional) liberar memoria del chr2
+rm(chr_cases, chr_controls, sig_cases, sig_ctrl, lead_cases, lead_ctrl, ann2)
+gc()
+```
+
+```{r}
+# ======================
+# CROMOSOMA 3
+# ======================
+
+path_cases <- "/home/jcarcel/Documents/Projects/01.mQTLs/results/osca/cases/mqtl_cases_chr3_sum.gz"
+path_controls <- "/home/jcarcel/Documents/Projects/01.mQTLs/results/osca/controls/mqtl_controls_chr3_sum.gz"
+
+chr_cases <- fread(path_cases)
+chr_controls <- fread(path_controls)
+
+probes3 <- cpg_annotations[CHR==3, unique(ProbeID)]
+chr_cases    <- chr_cases[Probe %in% probes3]
+chr_controls <- chr_controls[Probe %in% probes3]
+
+# crear columna z + filtrar significativos
+prep_sig <- function(dt, group_name){
+  dt <- dt[Freq >= 0.01 & Freq <= 0.99]
+  dt[, z := b / SE]
+  dt <- dt[p < 5e-8]
+  dt[, group := group_name]
+  dt
+}
+
+sig_cases <- prep_sig(chr_cases, "cases")
+sig_ctrl  <- prep_sig(chr_controls, "controls")
+
+# hacer lista con toda la info
+mqtl_all_chr3 <- rbindlist(list(sig_cases, sig_ctrl), use.names=TRUE, fill=TRUE)
+mqtl_all_chr3[, CHR := 3]
+
+# añadir anotación CpG a la lista
+ann3 <- cpg_annotations[CHR==3, .(ProbeID, BP, GeneID, Strand)]
+mqtl_all_chr3 <- merge(mqtl_all_chr3, ann3, by.x="Probe", by.y="ProbeID", all.x=TRUE)
+
+# lead SNP por Probe y grupo
+lead_cases <- mqtl_all_chr3[group=="cases"][order(p), .SD[1], by=.(Probe)]
+lead_ctrl  <- mqtl_all_chr3[group=="controls"][order(p), .SD[1], by=.(Probe)]
+
+# ------ CASOS ------
+idx_ca <- match(cpg_annotations[CHR==3, ProbeID], lead_cases$Probe)
+has_ca <- !is.na(idx_ca)
+cpg_annotations[CHR==3 & has_ca, mQTL_ca := "Significant mQTL"]
+cpg_annotations[CHR==3 & has_ca, mQTL_ca_lead := lead_cases$SNP[idx_ca[has_ca]]]
+cpg_annotations[CHR==3 & !has_ca, mQTL_ca := "Non Significant mQTL"]
+
+# ------ CONTROLES ------
+idx_co <- match(cpg_annotations[CHR==3, ProbeID], lead_ctrl$Probe)
+has_co <- !is.na(idx_co)
+cpg_annotations[CHR==3 & has_co, mQTL_co := "Significant mQTL"]
+cpg_annotations[CHR==3 & has_co, mQTL_co_lead := lead_ctrl$SNP[idx_co[has_co]]]
+cpg_annotations[CHR==3 & !has_co, mQTL_co := "Non Significant mQTL"]
+
+# eliminar columnas duplicadas + reordenarlas (si existen)
+setnames(mqtl_all_chr3, "BP.x", "SNP_BP", skip_absent=TRUE)
+setnames(mqtl_all_chr3, "BP.y", "CpG_BP", skip_absent=TRUE)
+
+mqtl_all_chr3[, intersect(c("Chr","Probe_Chr","Gene","Orientation"), names(mqtl_all_chr3)) := NULL]
+
+setcolorder(mqtl_all_chr3,
+            c("Probe","GeneID","Strand",
+              "SNP","CHR","SNP_BP","CpG_BP",
+              "A1","A2","Freq",
+              "b","SE","z","p",
+              "group"),
+            skip_absent=TRUE)
+
+# borrar filas con GeneID que terminan en _NA
+mqtl_all_chr3 <- mqtl_all_chr3[!grepl("_NA$", GeneID)]
+
+# guardar archivos
+fwrite(cpg_annotations,
+       file="../results/osca/mQTL_description_results_chr3.txt",
+       col.names=TRUE, row.names=FALSE, quote=FALSE, sep="\t")
+
+fwrite(mqtl_all_chr3,
+       file="../results/osca/mQTL_all_chr3_clean.txt",
+       sep="\t",
+       quote=FALSE)
+
+# añadir chr3 a la lista global
+mqtl_allchr[[length(mqtl_allchr) + 1]] <- mqtl_all_chr3
+
+# (opcional) liberar memoria del chr3
+rm(chr_cases, chr_controls, sig_cases, sig_ctrl, lead_cases, lead_ctrl, ann3)
+gc()
+```
+
+```{r}
+# ======================
+# CROMOSOMA 4
+# ======================
+
+path_cases <- "/home/jcarcel/Documents/Projects/01.mQTLs/results/osca/cases/mqtl_cases_chr4_sum.gz"
+path_controls <- "/home/jcarcel/Documents/Projects/01.mQTLs/results/osca/controls/mqtl_controls_chr4_sum.gz"
+
+chr_cases <- fread(path_cases)
+chr_controls <- fread(path_controls)
+
+probes4 <- cpg_annotations[CHR==4, unique(ProbeID)]
+chr_cases    <- chr_cases[Probe %in% probes4]
+chr_controls <- chr_controls[Probe %in% probes4]
+
+# crear columna z + filtrar significativos
+prep_sig <- function(dt, group_name){
+  dt <- dt[Freq >= 0.01 & Freq <= 0.99]
+  dt[, z := b / SE]
+  dt <- dt[p < 5e-8]
+  dt[, group := group_name]
+  dt
+}
+
+sig_cases <- prep_sig(chr_cases, "cases")
+sig_ctrl  <- prep_sig(chr_controls, "controls")
+
+# hacer lista con toda la info
+mqtl_all_chr4 <- rbindlist(list(sig_cases, sig_ctrl), use.names=TRUE, fill=TRUE)
+mqtl_all_chr4[, CHR := 4]
+
+# añadir anotación CpG a la lista
+ann4 <- cpg_annotations[CHR==4, .(ProbeID, BP, GeneID, Strand)]
+mqtl_all_chr4 <- merge(mqtl_all_chr4, ann4, by.x="Probe", by.y="ProbeID", all.x=TRUE)
+
+# lead SNP por Probe y grupo
+lead_cases <- mqtl_all_chr4[group=="cases"][order(p), .SD[1], by=.(Probe)]
+lead_ctrl  <- mqtl_all_chr4[group=="controls"][order(p), .SD[1], by=.(Probe)]
+
+# ------ CASOS ------
+idx_ca <- match(cpg_annotations[CHR==4, ProbeID], lead_cases$Probe)
+has_ca <- !is.na(idx_ca)
+cpg_annotations[CHR==4 & has_ca, mQTL_ca := "Significant mQTL"]
+cpg_annotations[CHR==4 & has_ca, mQTL_ca_lead := lead_cases$SNP[idx_ca[has_ca]]]
+cpg_annotations[CHR==4 & !has_ca, mQTL_ca := "Non Significant mQTL"]
+
+# ------ CONTROLES ------
+idx_co <- match(cpg_annotations[CHR==4, ProbeID], lead_ctrl$Probe)
+has_co <- !is.na(idx_co)
+cpg_annotations[CHR==4 & has_co, mQTL_co := "Significant mQTL"]
+cpg_annotations[CHR==4 & has_co, mQTL_co_lead := lead_ctrl$SNP[idx_co[has_co]]]
+cpg_annotations[CHR==4 & !has_co, mQTL_co := "Non Significant mQTL"]
+
+# eliminar columnas duplicadas + reordenarlas (si existen)
+setnames(mqtl_all_chr4, "BP.x", "SNP_BP", skip_absent=TRUE)
+setnames(mqtl_all_chr4, "BP.y", "CpG_BP", skip_absent=TRUE)
+
+mqtl_all_chr4[, intersect(c("Chr","Probe_Chr","Gene","Orientation"), names(mqtl_all_chr4)) := NULL]
+
+setcolorder(mqtl_all_chr4,
+            c("Probe","GeneID","Strand",
+              "SNP","CHR","SNP_BP","CpG_BP",
+              "A1","A2","Freq",
+              "b","SE","z","p",
+              "group"),
+            skip_absent=TRUE)
+
+# borrar filas con GeneID que terminan en _NA
+mqtl_all_chr4 <- mqtl_all_chr4[!grepl("_NA$", GeneID)]
+
+# guardar archivos
+fwrite(cpg_annotations,
+       file="../results/osca/mQTL_description_results_chr4.txt",
+       col.names=TRUE, row.names=FALSE, quote=FALSE, sep="\t")
+
+fwrite(mqtl_all_chr4,
+       file="../results/osca/mQTL_all_chr4_clean.txt",
+       sep="\t",
+       quote=FALSE)
+
+# añadir chr4 a la lista global
+mqtl_allchr[[length(mqtl_allchr) + 1]] <- mqtl_all_chr4
+
+# (opcional) liberar memoria del chr4
+rm(chr_cases, chr_controls, sig_cases, sig_ctrl, lead_cases, lead_ctrl, ann4)
+gc()
+```
+
+```{r}
+# ======================
+# CROMOSOMA 5
+# ======================
+
+path_cases <- "/home/jcarcel/Documents/Projects/01.mQTLs/results/osca/cases/mqtl_cases_chr5_sum.gz"
+path_controls <- "/home/jcarcel/Documents/Projects/01.mQTLs/results/osca/controls/mqtl_controls_chr5_sum.gz"
+
+chr_cases <- fread(path_cases)
+chr_controls <- fread(path_controls)
+
+probes5 <- cpg_annotations[CHR==5, unique(ProbeID)]
+chr_cases    <- chr_cases[Probe %in% probes5]
+chr_controls <- chr_controls[Probe %in% probes5]
+
+# crear columna z + filtrar significativos
+prep_sig <- function(dt, group_name){
+  dt <- dt[Freq >= 0.01 & Freq <= 0.99]
+  dt[, z := b / SE]
+  dt <- dt[p < 5e-8]
+  dt[, group := group_name]
+  dt
+}
+
+sig_cases <- prep_sig(chr_cases, "cases")
+sig_ctrl  <- prep_sig(chr_controls, "controls")
+
+# hacer lista con toda la info
+mqtl_all_chr5 <- rbindlist(list(sig_cases, sig_ctrl), use.names=TRUE, fill=TRUE)
+mqtl_all_chr5[, CHR := 5]
+
+# añadir anotación CpG a la lista
+ann5 <- cpg_annotations[CHR==5, .(ProbeID, BP, GeneID, Strand)]
+mqtl_all_chr5 <- merge(mqtl_all_chr5, ann5, by.x="Probe", by.y="ProbeID", all.x=TRUE)
+
+# lead SNP por Probe y grupo
+lead_cases <- mqtl_all_chr5[group=="cases"][order(p), .SD[1], by=.(Probe)]
+lead_ctrl  <- mqtl_all_chr5[group=="controls"][order(p), .SD[1], by=.(Probe)]
+
+# ------ CASOS ------
+idx_ca <- match(cpg_annotations[CHR==5, ProbeID], lead_cases$Probe)
+has_ca <- !is.na(idx_ca)
+cpg_annotations[CHR==5 & has_ca, mQTL_ca := "Significant mQTL"]
+cpg_annotations[CHR==5 & has_ca, mQTL_ca_lead := lead_cases$SNP[idx_ca[has_ca]]]
+cpg_annotations[CHR==5 & !has_ca, mQTL_ca := "Non Significant mQTL"]
+
+# ------ CONTROLES ------
+idx_co <- match(cpg_annotations[CHR==5, ProbeID], lead_ctrl$Probe)
+has_co <- !is.na(idx_co)
+cpg_annotations[CHR==5 & has_co, mQTL_co := "Significant mQTL"]
+cpg_annotations[CHR==5 & has_co, mQTL_co_lead := lead_ctrl$SNP[idx_co[has_co]]]
+cpg_annotations[CHR==5 & !has_co, mQTL_co := "Non Significant mQTL"]
+
+# eliminar columnas duplicadas + reordenarlas (si existen)
+setnames(mqtl_all_chr5, "BP.x", "SNP_BP", skip_absent=TRUE)
+setnames(mqtl_all_chr5, "BP.y", "CpG_BP", skip_absent=TRUE)
+
+mqtl_all_chr5[, intersect(c("Chr","Probe_Chr","Gene","Orientation"), names(mqtl_all_chr5)) := NULL]
+
+setcolorder(mqtl_all_chr5,
+            c("Probe","GeneID","Strand",
+              "SNP","CHR","SNP_BP","CpG_BP",
+              "A1","A2","Freq",
+              "b","SE","z","p",
+              "group"),
+            skip_absent=TRUE)
+
+# borrar filas con GeneID que terminan en _NA
+mqtl_all_chr5 <- mqtl_all_chr5[!grepl("_NA$", GeneID)]
+
+# guardar archivos
+fwrite(cpg_annotations,
+       file="../results/osca/mQTL_description_results_chr5.txt",
+       col.names=TRUE, row.names=FALSE, quote=FALSE, sep="\t")
+
+fwrite(mqtl_all_chr5,
+       file="../results/osca/mQTL_all_chr5_clean.txt",
+       sep="\t",
+       quote=FALSE)
+
+# añadir chr5 a la lista global
+mqtl_allchr[[length(mqtl_allchr) + 1]] <- mqtl_all_chr5
+
+# (opcional) liberar memoria del chr5
+rm(chr_cases, chr_controls, sig_cases, sig_ctrl, lead_cases, lead_ctrl, ann5)
+gc()
+
+```
+
+for(i in 1:5){
+print(i)} 
+
+```{r}
+# ======================
+# BUCLE
+# ======================
+
+path_cases <- "/home/jcarcel/Documents/Projects/01.mQTLs/results/osca/cases/mqtl_cases_chr5_sum.gz"
+path_controls <- "/home/jcarcel/Documents/Projects/01.mQTLs/results/osca/controls/mqtl_controls_chr5_sum.gz"
+
+chr_cases <- fread(path_cases)
+chr_controls <- fread(path_controls)
+
+probes5 <- cpg_annotations[CHR==5, unique(ProbeID)]
+chr_cases    <- chr_cases[Probe %in% probes5]
+chr_controls <- chr_controls[Probe %in% probes5]
+
+# crear columna z + filtrar significativos
+prep_sig <- function(dt, group_name){
+  dt <- dt[Freq >= 0.01 & Freq <= 0.99]
+  dt[, z := b / SE]
+  dt <- dt[p < 5e-8]
+  dt[, group := group_name]
+  dt
+}
+
+sig_cases <- prep_sig(chr_cases, "cases")
+sig_ctrl  <- prep_sig(chr_controls, "controls")
+
+# hacer lista con toda la info
+mqtl_all_chr5 <- rbindlist(list(sig_cases, sig_ctrl), use.names=TRUE, fill=TRUE)
+mqtl_all_chr5[, CHR := 5]
+
+# añadir anotación CpG a la lista
+ann5 <- cpg_annotations[CHR==5, .(ProbeID, BP, GeneID, Strand)]
+mqtl_all_chr5 <- merge(mqtl_all_chr5, ann5, by.x="Probe", by.y="ProbeID", all.x=TRUE)
+
+# lead SNP por Probe y grupo
+lead_cases <- mqtl_all_chr5[group=="cases"][order(p), .SD[1], by=.(Probe)]
+lead_ctrl  <- mqtl_all_chr5[group=="controls"][order(p), .SD[1], by=.(Probe)]
+
+# ------ CASOS ------
+idx_ca <- match(cpg_annotations[CHR==5, ProbeID], lead_cases$Probe)
+has_ca <- !is.na(idx_ca)
+cpg_annotations[CHR==5 & has_ca, mQTL_ca := "Significant mQTL"]
+cpg_annotations[CHR==5 & has_ca, mQTL_ca_lead := lead_cases$SNP[idx_ca[has_ca]]]
+cpg_annotations[CHR==5 & !has_ca, mQTL_ca := "Non Significant mQTL"]
+
+# ------ CONTROLES ------
+idx_co <- match(cpg_annotations[CHR==5, ProbeID], lead_ctrl$Probe)
+has_co <- !is.na(idx_co)
+cpg_annotations[CHR==5 & has_co, mQTL_co := "Significant mQTL"]
+cpg_annotations[CHR==5 & has_co, mQTL_co_lead := lead_ctrl$SNP[idx_co[has_co]]]
+cpg_annotations[CHR==5 & !has_co, mQTL_co := "Non Significant mQTL"]
+
+# eliminar columnas duplicadas + reordenarlas (si existen)
+setnames(mqtl_all_chr5, "BP.x", "SNP_BP", skip_absent=TRUE)
+setnames(mqtl_all_chr5, "BP.y", "CpG_BP", skip_absent=TRUE)
+
+mqtl_all_chr5[, intersect(c("Chr","Probe_Chr","Gene","Orientation"), names(mqtl_all_chr5)) := NULL]
+
+setcolorder(mqtl_all_chr5,
+            c("Probe","GeneID","Strand",
+              "SNP","CHR","SNP_BP","CpG_BP",
+              "A1","A2","Freq",
+              "b","SE","z","p",
+              "group"),
+            skip_absent=TRUE)
+
+# borrar filas con GeneID que terminan en _NA
+mqtl_all_chr5 <- mqtl_all_chr5[!grepl("_NA$", GeneID)]
+
+# guardar archivos
+fwrite(cpg_annotations,
+       file="../results/osca/mQTL_description_results_chr5.txt",
+       col.names=TRUE, row.names=FALSE, quote=FALSE, sep="\t")
+
+fwrite(mqtl_all_chr5,
+       file="../results/osca/mQTL_all_chr5_clean.txt",
+       sep="\t",
+       quote=FALSE)
+
+# añadir chr5 a la lista global
+mqtl_allchr[[length(mqtl_allchr) + 1]] <- mqtl_all_chr5
+
+# (opcional) liberar memoria del chr5
+rm(chr_cases, chr_controls, sig_cases, sig_ctrl, lead_cases, lead_ctrl, ann5)
+gc()
+
+```
+bucle chr
+```{r}
+library(data.table)
+cpg_annotations <- fread("../data/cpgs_annotations.opi")
+
+colnames(cpg_annotations)[1:5] <- c("CHR","ProbeID","BP","GeneID","Strand")
+
+cpg_annotations$mQTL_ca <- "Not evaluted"
+cpg_annotations$mQTL_ca_lead <- ""
+cpg_annotations$mQTL_co <- "Not evaluted"
+cpg_annotations$mQTL_co_lead <- ""
+
+wrong_snps <- fread("/home/jcarcel/Documents/Projects/01.mQTLs/results/missing_evaluation/gen12_ewas_missing.snp.gz")
+
+# preparar función
+prep_sig <- function(dt, group_name){
+  dt <- dt[Freq >= 0.01 & Freq <= 0.99]
+  dt[, z := b / SE]
+  dt <- dt[p < 5e-8]
+  dt[, group := group_name]
+  dt
+}
+
+mqtl_chr_unidos <- list()
+
+for (chr in 1:22) {
+ cat("Se está procesando el chr", chr,"\n")
+ 
+ path_cases <- paste0("/home/jcarcel/Documents/Projects/01.mQTLs/results/osca/cases/mqtl_cases_chr", chr,"_sum.gz")
+ path_controls <- paste0("/home/jcarcel/Documents/Projects/01.mQTLs/results/osca/controls/mqtl_controls_chr", chr,"_sum.gz")
+
+ chr_cases <- fread(path_cases)
+ chr_controls <- fread(path_controls)
+ 
+#aplicar filtros
+chr_cases <- chr_cases[!chr_cases$SNP %in% wrong_snps$V1,]
+chr_controls <- chr_controls[!chr_controls$SNP %in% wrong_snps$V1,]
+ 
+ probes_chr <- cpg_annotations[CHR==chr, unique(ProbeID)]
+ chr_cases    <- chr_cases[chr_cases$Probe %in% probes_chr,]
+ chr_controls <- chr_controls[Probe %in% probes_chr]
+
+ sig_cases <- prep_sig(chr_cases, "cases")
+ sig_ctrl  <- prep_sig(chr_controls, "controls")
+
+#hacer lista con toda la info 
+ mqtl_all_chr <- rbindlist(list(sig_cases, sig_ctrl), use.names=TRUE, fill=TRUE)
+ mqtl_all_chr[, CHR := chr]# por claridad
+
+# añadir anotación CpG a la lista
+ ann_chr <- cpg_annotations[CHR==chr, .(ProbeID,BP,GeneID,Strand)]
+ mqtl_all_chr <- merge(mqtl_all_chr, ann_chr, by.x="Probe", by.y="ProbeID", all.x=TRUE)
+
+ lead_cases <- mqtl_all_chr[group=="cases"][order(p), .SD[1], by=.(Probe)]
+ lead_ctrl  <- mqtl_all_chr[group=="controls"][order(p), .SD[1], by=.(Probe)]
+    
+# ------ CASOS ------
+ idx_ca <- match(cpg_annotations[CHR==chr, ProbeID], lead_cases$Probe)
+ has_ca <- !is.na(idx_ca)
+ cpg_annotations[CHR==chr & has_ca, mQTL_ca := "Significant mQTL"]
+ cpg_annotations[CHR==chr & has_ca, mQTL_ca_lead := lead_cases$SNP[idx_ca[has_ca]]]
+ cpg_annotations[CHR==chr & !has_ca, mQTL_ca := "Non Significant mQTL"]
+
+# ------ CONTROLES ------
+ idx_co <- match(cpg_annotations[CHR==chr, ProbeID], lead_ctrl$Probe)
+ has_co <- !is.na(idx_co)
+ cpg_annotations[CHR==chr & has_co, mQTL_co := "Significant mQTL"]
+ cpg_annotations[CHR==chr & has_co, mQTL_co_lead := lead_ctrl$SNP[idx_co[has_co]]]
+ cpg_annotations[CHR==chr & !has_co, mQTL_co := "Non Significant mQTL"]
+
+ # eliminar columnas duplicadas + reordenarlas
+ setnames(mqtl_all_chr, "BP.x", "SNP_BP")
+ setnames(mqtl_all_chr, "BP.y", "CpG_BP")
+
+ mqtl_all_chr[, c("Chr", "Probe_Chr", "Gene", "Orientation") := NULL]
+
+ setcolorder(mqtl_all_chr,
+            c("Probe","GeneID","Strand",
+              "SNP","CHR","SNP_BP","CpG_BP",
+              "A1","A2","Freq",
+              "b","SE","z","p",
+              "group"))
+
+# BORRAR TODAS AQUELLAS FILAS EN QUE EN LA COLUMNA GENEID HAY UN -NA
+ sum(grepl("_NA$", mqtl_all_chr$GeneID))
+ dim(mqtl_all_chr)
+
+ mqtl_all_chr <- mqtl_all_chr[!grepl("_NA$", GeneID)]
+
+ dim(mqtl_all_chr)
+ 
+ # guardar todo
+ fwrite(mqtl_all_chr,
+       file=paste0("../results/osca/mQTL_all_chr", chr, "_cases_controls_withZ.txt"),
+       col.names=TRUE, row.names=FALSE, quote=FALSE, sep="\t")
+
+ mqtl_chr_unidos[[length(mqtl_chr_unidos) + 1]] <- mqtl_all_chr
+
+}
+
+#GUARDAR EL ARCHIVO DE TODOS LOS CROMOSOMAS UNIDOS
+
+allchr_mqtl <- rbindlist(mqtl_chr_unidos)
+
+fwrite(allchr_mqtl,
+       file = "../results/osca/allchr_mQTL.txt",
+       sep = "\t",
+       quote = FALSE) 
+ 
+fwrite(cpg_annotations,
+      file="../results/osca/mQTL_description_results_allchr.txt",
+       col.names=TRUE, row.names=FALSE, quote=FALSE, sep="\t")
+
+```
+comprobar bucle + cargar último archivo guardado de todos los chr
+```{r}
+library(data.table)
+
+allchr <- fread("../results/osca/allchr_mQTL.txt")
+dim(allchr)
+table(allchr$CHR) #para comprobar que están los 22 chr
+table(allchr$group) # para comprobar que están casos y controles
+table(allchr$group)
+#### OSCA MAF 1% ####
+# CASOS: 1.887.847  // CONTROLES: 659.404
+```
+COMPARACIÓN CON OSCA_MAF 5%
+```{r}
+library(data.table)
+
+base_path <- "/home/jcarcel/Documents/Projects/01.mQTLs/results"
+p_thr <- 5e-8
+chrs <- 1:22
+
+dirs <- data.table(
+  group = c("Cases","Controls","Cases","Controls"),
+  maf   = c("MAF>=1%","MAF>=1%","MAF>=5%","MAF>=5%"),
+  dir   = c(file.path(base_path,"osca","cases"),
+            file.path(base_path,"osca","controls"),
+            file.path(base_path,"osca_maf5","cases"),
+            file.path(base_path,"osca_maf5","controls"))
+)
+
+find_chr_file <- function(dir, chr){
+  hits <- list.files(dir, pattern = sprintf("chr%s.*sum\\.gz$", chr), full.names = TRUE)
+  if (length(hits) == 0) return(NA_character_)
+  hits[1]
+}
+
+count_complete_fast <- function(dir){
+  n_pairs <- 0L
+  cpgs <- character()
+  snps <- character()
+
+  for (chr in chrs) {
+    f <- find_chr_file(dir, chr)
+    if (is.na(f)) next
+
+    dt <- fread(f, select = c("Probe","SNP","p"), showProgress = FALSE)
+
+    sig <- dt[p < p_thr, .(Probe, SNP)]
+    n_pairs <- n_pairs + nrow(sig)
+
+    cpgs <- c(cpgs, sig$Probe)
+    snps <- c(snps, sig$SNP)
+  }
+
+  data.table(
+    n_pairs_sig = n_pairs,
+    n_cpg_sig   = uniqueN(cpgs),
+    n_snp_sig   = uniqueN(snps)
+  )
+}
+
+tab_total <- dirs[, count_complete_fast(dir), by = .(group, maf)]
+tab_total
+fwrite(tab_total, "mqtl_counts_FAST_complete.csv")
+```
+preparar SMR
+```{r}
+library(data.table)
+
+# crear carpeta smr dentro de results
+dir.create("~/Documents/Projects/01.mQTLs/results/smr",
+           recursive = TRUE,
+           showWarnings = FALSE)
+
+# crear carpeta para casos y controles
+dir.create("~/Documents/Projects/01.mQTLs/results/smr/cases",
+           recursive = TRUE, showWarnings = FALSE)
+
+dir.create("~/Documents/Projects/01.mQTLs/results/smr/controls",
+           recursive = TRUE, showWarnings = FALSE)
+
+##generar los archivos con el formato de SMR
+mQTL_allchr <- fread("~/Documents/Projects/01.mQTLs/results/osca/allchr_mQTL.txt")
+
+#crear formato tipo SMR
+names(mQTL_allchr)
+q <- data.table(
+  SNP = mQTL_allchr[["SNP"]],
+  Chr = mQTL_allchr[["CHR"]],
+  BP  = mQTL_allchr[["SNP_BP"]],
+  A1  = mQTL_allchr[["A1"]],
+  A2  = mQTL_allchr[["A2"]],
+  Freq = mQTL_allchr[["Freq"]],
+  Probe = mQTL_allchr[["Probe"]],
+  Probe_Chr = mQTL_allchr[["CHR"]],
+  Probe_bp  = mQTL_allchr[["Probe_bp"]],
+  Gene = mQTL_allchr[["GeneID"]],
+  Orientation = mQTL_allchr[["Strand"]],
+  b  = mQTL_allchr[["b"]],
+  se = mQTL_allchr[["SE"]],
+  p  = mQTL_allchr[["p"]],
+  group = trimws(as.character(mQTL_allchr[["group"]]))
+)
+
+q_cases <- q[tolower(group) %in% c("cases","case")]
+q_ctrl  <- q[tolower(group) %in% c("controls","control")]
+
+nrow(q_cases)
+nrow(q_ctrl)
+
+#para guardar los archivos 
+outdir <- "~/Documents/Projects/01.mQTLs/results/smr"
+cases_file <- file.path(outdir, "cases", "mQTL_cases.query.txt")
+ctrl_file  <- file.path(outdir, "controls", "mQTL_controls.query.txt")
+
+fwrite(q_cases[, !"group"], cases_file, sep="\t", quote=FALSE, na="NA")
+fwrite(q_ctrl[,  !"group"], ctrl_file,  sep="\t", quote=FALSE, na="NA")
+#para comprobar que se ha guardado bien tiene que salir TRUE TRUE
+dir.exists(file.path(outdir, "cases"))
+dir.exists(file.path(outdir, "controls"))
+
+# para comprobar
+file.exists(cases_file)
+file.exists(ctrl_file)
+
+fread(cases_file, nrows = 3)
+fread(ctrl_file,  nrows = 3)
+
+##### a partir de aquí, hacer en terminal
+
+```
+arreglar error de script ya que no coinciden los números de mQTL significativas -> el error esta en el script inicial
+```{r}
+library(data.table)
+
+base_path <- "/home/jcarcel/Documents/Projects/01.mQTLs/results"
+p_thr <- 5e-8
+chrs <- 1:22
+
+# encuentra el archivo exacto chr (sin confundir chr1 con chr10)
+get_chr_file <- function(dir, chr){
+  hits <- list.files(dir, pattern = sprintf("_chr%d_sum\\.gz$", chr), full.names = TRUE)
+  if(length(hits) != 1) stop("Chr ", chr, " en ", dir, " tiene ", length(hits), " archivos")
+  hits[1]
+}
+
+# devuelve un vector de CpGs significativas (UNICA por chr, y luego unimos)
+get_sig_cpgs_fast <- function(dir){
+  sig_list <- vector("list", length(chrs))
+  for(i in seq_along(chrs)){
+    chr <- chrs[i]
+    f <- get_chr_file(dir, chr)
+    dt <- fread(f, select=c("Probe","p"), showProgress = FALSE)
+    sig_list[[i]] <- unique(dt[p < p_thr, Probe])
+    rm(dt); gc()
+  }
+  unique(unlist(sig_list))
+
+sig_cases <- get_sig_cpgs_fast(file.path(base_path,"osca","cases"))
+sig_ctrl  <- get_sig_cpgs_fast(file.path(base_path,"osca","controls"))
+
+length(sig_cases)
+length(sig_ctrl) 
+
+cpg_annotations <- fread("../data/cpgs_annotations.opi")
+colnames(cpg_annotations)[1:5] <- c("CHR","ProbeID","BP","GeneID","Strand")
+
+cpg_annotations[, mQTL_ca := ifelse(ProbeID %in% sig_cases, "Significant mQTL", "Non Significant mQTL")]
+cpg_annotations[, mQTL_co := ifelse(ProbeID %in% sig_ctrl,  "Significant mQTL", "Non Significant mQTL")]
+
+out_file <- file.path(base_path, "osca", "mQTL_description_results_allchr_MAF1_FIXED.txt")
+fwrite(cpg_annotations, out_file, sep="\t")
+
+final <- fread(out_file, select=c("mQTL_ca","mQTL_co"))
+table(final$mQTL_ca)
+table(final$mQTL_co)
+
+##### hacer en análisis para MAF 5%
+sig_cases_maf5 <- get_sig_cpgs_fast(file.path(base_path,"osca_maf5","cases"))
+sig_ctrl_maf5  <- get_sig_cpgs_fast(file.path(base_path,"osca_maf5","controls"))
+
+length(sig_cases_maf5)
+length(sig_ctrl_maf5)
+
+cpg_annotations <- fread("../data/cpgs_annotations.opi")
+colnames(cpg_annotations)[1:5] <- c("CHR","ProbeID","BP","GeneID","Strand")
+
+cpg_annotations[, mQTL_ca := ifelse(ProbeID %in% sig_cases_maf5,
+                                    "Significant mQTL",
+                                    "Non Significant mQTL")]
+
+cpg_annotations[, mQTL_co := ifelse(ProbeID %in% sig_ctrl_maf5,
+                                    "Significant mQTL",
+                                    "Non Significant mQTL")]
+
+out_file_maf5 <- file.path(base_path,
+                           "osca_maf5",
+                           "mQTL_description_results_allchr_MAF5_FIXED.txt")
+
+fwrite(cpg_annotations, out_file_maf5, sep="\t")
+
+final_maf5 <- fread(out_file_maf5, select=c("mQTL_ca","mQTL_co"))
+
+table(final_maf5$mQTL_ca)
+table(final_maf5$mQTL_co)
+
+# tabla resumen para mi report
+library(data.table)
+
+tabla_sig <- data.table(
+  Grupo = c("Cases", "Controls"),
+  `MAF ≥1%` = c(30303, 17657),
+  `MAF ≥5%` = c(length(sig_cases_maf5), length(sig_ctrl_maf5))
+)
+
+tabla_sig
+```
+```{r}
+library(data.table)
+
+base_path <- "/home/jcarcel/Documents/Projects/01.mQTLs/results"
+p_thr <- 5e-8
+chrs <- 1:22
+
+# función para encontrar el archivo correcto del cromosoma
+get_chr_file <- function(dir, chr){
+  hits <- list.files(dir, pattern = sprintf("_chr%d_sum\\.gz$", chr), full.names = TRUE)
+  if(length(hits) != 1) stop("Problema con chr ", chr, " en ", dir)
+  hits[1]
+}
+
+count_complete <- function(dir){
+  
+  n_pairs <- 0L
+  cpgs <- character()
+  snps <- character()
+  
+  for(chr in chrs){
+    
+    f <- get_chr_file(dir, chr)
+    
+    dt <- fread(f, select=c("Probe","SNP","p"), showProgress=FALSE)
+    
+    sig <- dt[p < p_thr]
+    
+    n_pairs <- n_pairs + nrow(sig)
+    
+    cpgs <- c(cpgs, sig$Probe)
+    snps <- c(snps, sig$SNP)
+    
+    rm(dt, sig); gc()
+  }
+  
+  data.table(
+    n_pairs_sig = n_pairs,
+    n_cpg_sig = uniqueN(cpgs),
+    n_snp_sig = uniqueN(snps)
+  )
+}
+
+dirs <- data.table(
+  group = c("Cases","Controls","Cases","Controls"),
+  maf = c("MAF>=1%","MAF>=1%","MAF>=5%","MAF>=5%"),
+  dir = c(
+    file.path(base_path,"osca","cases"),
+    file.path(base_path,"osca","controls"),
+    file.path(base_path,"osca_maf5","cases"),
+    file.path(base_path,"osca_maf5","controls")
+  )
+)
+
+tabla_final <- dirs[, count_complete(dir), by=.(group, maf)]
+
+tabla_final
+
+fwrite(tabla_final,
+       "/home/jcarcel/Documents/Projects/01.mQTLs/results/mqtl_counts_FIXED.csv")
+```
+comprobar que finalmente coincidan
+```{r}
+tabla <- fread("/home/jcarcel/Documents/Projects/01.mQTLs/results/mqtl_counts_FIXED.csv")
+tabla
+
+maf1 <- fread("/home/jcarcel/Documents/Projects/01.mQTLs/results/osca/mQTL_description_results_allchr_MAF1_FIXED.txt")
+
+maf5 <- fread("/home/jcarcel/Documents/Projects/01.mQTLs/results/osca_maf5/mQTL_description_results_allchr_MAF5_FIXED.txt")
+
+# MAF 1%
+sum(maf1$mQTL_ca == "Significant mQTL")
+sum(maf1$mQTL_co == "Significant mQTL")
+
+# MAF 5%
+sum(maf5$mQTL_ca == "Significant mQTL")
+sum(maf5$mQTL_co == "Significant mQTL")
+
+tabla_check <- data.table(
+  group = c("Cases","Controls","Cases","Controls"),
+  maf = c("MAF>=1%","MAF>=1%","MAF>=5%","MAF>=5%"),
+  n_cpg_from_file = c(
+    sum(maf1$mQTL_ca == "Significant mQTL"),
+    sum(maf1$mQTL_co == "Significant mQTL"),
+    sum(maf5$mQTL_ca == "Significant mQTL"),
+    sum(maf5$mQTL_co == "Significant mQTL")
+  )
+)
+
+merge(tabla, tabla_check, by=c("group","maf"))
+```
+```{r}
+```
+
+
+```{r}
+```
+
