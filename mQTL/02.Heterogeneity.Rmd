@@ -1,6 +1,6 @@
 ---
 title: "Heterogeneity"
-author: "Jara Cárcel"
+author: "Leyre Franquet"
 date: "2026-03-05"
 output: html_document
 ---
