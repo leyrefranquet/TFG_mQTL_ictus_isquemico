@@ -1,6 +1,6 @@
 ---
 title: ''
-author: "Jara Cárcel"
+author: "Leyre Franquet"
 date: "2026-02-18"
 output: html_document
 ---
