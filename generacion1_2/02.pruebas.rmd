@@ -1,0 +1,420 @@
+---
+title: "02.pruebas"
+author: "Leyre Franquet"
+date: "2026-02-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+```{r}
+### CE ###
+library(data.table)
+setwd("/home/lpstroke/Documentos/Leyre Franquet/proyecto_tfg/gen1-2/Both")
+## cargo las dos dataframes, la de stroke (la general) y la de CE (una subetiología)
+ce <- fread("Both/CE_snptest_both_clean.txt",
+            select = c("rsid","chromosome","position","alleleA","alleleB",
+                       "frequentist_add_beta_1","frequentist_add_se_1","frequentist_add_pvalue"))
+
+stroke <- fread("Both/STROKE_snptest_both_clean.txt",
+                select = c("rsid","chromosome","position","alleleA","alleleB",
+                           "frequentist_add_beta_1","frequentist_add_se_1","frequentist_add_pvalue"))
+# arreglo los nombres de las columnas para que quede más claro
+setnames(ce,
+         old = c("frequentist_add_beta_1","frequentist_add_se_1","frequentist_add_pvalue"),
+         new = c("beta_CE","se_CE","p_CE"))
+
+setnames(stroke,
+         old = c("frequentist_add_beta_1","frequentist_add_se_1","frequentist_add_pvalue"),
+         new = c("beta_STROKE","se_STROKE","p_STROKE"))
+
+# uno por SNP
+merged <- merge(
+  ce, stroke,
+  by = c("chromosome","position","alleleA","alleleB"),
+  all = FALSE
+)
+
+head(merged)
+dim(merged)
+# PARA SABER EL % DE LA MISMA DIRECCIÓN DEL EFECTO
+merged[, same_direction := sign(beta_CE) == sign(beta_STROKE)]
+mean(merged$same_direction, na.rm = TRUE)
+# CORRELACIÓN DE BETAS PARA VER CÓMO DE PARECIDAS SON
+cor(merged$beta_CE, merged$beta_STR, use = "complete.obs")
+# VER SI LOS SNP MÁS SIGNIFICATIVOS DE CE, REPLICAN EN STROKE
+top_ce <- merged[order(p_CE)][1:1000]
+mean(top_ce$same_direction, na.rm = TRUE)
+summary(top_ce$p_STROKE)
+
+
+hits_ce <- merged[p_CE < 1e-6][order(p_CE)]
+hits_ce[, .(chromosome, position, alleleA, alleleB, beta_CE, p_CE, beta_STROKE, p_STROKE)][1:30]
+
+#crear PLOT
+library(ggplot2)
+
+set.seed(1)
+plot_df <- merged[sample(.N, 200000)]  # muestreo para que no reviente el plot
+
+ggplot(plot_df, aes(beta_STROKE, beta_CE)) +
+  geom_point(alpha = 0.15) +
+  geom_hline(yintercept = 0) +
+  geom_vline(xintercept = 0) +
+  labs(x = "Beta STROKE (global)", y = "Beta CE",
+       title = "Comparación de efectos: CE vs STROKE")
+
+```
+```{r}
+### LAA ###
+library(data.table)
+setwd("/home/lpstroke/Documentos/Leyre Franquet/proyecto_tfg/gen1-2/Both")
+getwd()
+## cargo las dos dataframes, la de stroke (la general) y la de CE (una subetiología)
+laa <- fread("Both/LAA_snptest_both_clean.txt",
+            select = c("rsid","chromosome","position","alleleA","alleleB",
+                       "frequentist_add_beta_1","frequentist_add_se_1","frequentist_add_pvalue"))
+
+# arreglo los nombres de las columnas para que quede más claro
+setnames(laa,
+         old = c("frequentist_add_beta_1","frequentist_add_se_1","frequentist_add_pvalue"),
+         new = c("beta_LAA","se_LAA","p_LAA"))
+
+# uno por SNP
+merged <- merge(
+  laa, stroke,
+  by = c("chromosome","position","alleleA","alleleB"),
+  all = FALSE
+)
+
+head(merged)
+dim(merged)
+# PARA SABER EL % DE LA MISMA DIRECCIÓN DEL EFECTO
+merged[, same_direction := sign(beta_LAA) == sign(beta_STROKE)]
+mean(merged$same_direction, na.rm = TRUE)
+# CORRELACIÓN DE BETAS PARA VER CÓMO DE PARECIDAS SON
+cor(merged$beta_LAA, merged$beta_STROKE, use = "complete.obs")
+# VER SI LOS SNP MÁS SIGNIFICATIVOS DE CE, REPLICAN EN STROKE
+top_laa <- merged[order(p_LAA)][1:1000]
+mean(top_laa$same_direction, na.rm = TRUE)
+summary(top_laa$p_STROKE)
+
+
+hits_laa <- merged[p_LAA < 1e-6][order(p_LAA)]
+hits_laa[, .(chromosome, position, alleleA, alleleB, beta_LAA, p_LAA, beta_STROKE, p_STROKE)][1:30]
+
+#crear PLOT
+library(ggplot2)
+
+set.seed(1)
+plot_df <- merged[sample(.N, 200000)]  # muestreo para que no reviente el plot
+
+ggplot(plot_df, aes(beta_STROKE, beta_LAA)) +
+  geom_point(alpha = 0.15) +
+  geom_hline(yintercept = 0) +
+  geom_vline(xintercept = 0) +
+  labs(x = "Beta STROKE (global)", y = "Beta LAA",
+       title = "Comparación de efectos: LAA vs STROKE")
+
+```
+```{r}
+### SVO ###
+library(data.table)
+setwd("/home/lpstroke/Documentos/Leyre Franquet/proyecto_tfg/gen1-2/Both")
+getwd()
+## cargo las dos dataframes, la de stroke (la general) y la de CE (una subetiología)
+svo <- fread("Both/SVO_snptest_both_clean.txt",
+            select = c("rsid","chromosome","position","alleleA","alleleB",
+                       "frequentist_add_beta_1","frequentist_add_se_1","frequentist_add_pvalue"))
+
+# arreglo los nombres de las columnas para que quede más claro
+setnames(svo,
+         old = c("frequentist_add_beta_1","frequentist_add_se_1","frequentist_add_pvalue"),
+         new = c("beta_SVO","se_SVO","p_SVO"))
+
+# uno por SNP
+merged <- merge(
+  svo, stroke,
+  by = c("chromosome","position","alleleA","alleleB"),
+  all = FALSE
+)
+
+head(merged)
+dim(merged)
+# PARA SABER EL % DE LA MISMA DIRECCIÓN DEL EFECTO
+merged[, same_direction := sign(beta_SVO) == sign(beta_STROKE)]
+mean(merged$same_direction, na.rm = TRUE)
+# CORRELACIÓN DE BETAS PARA VER CÓMO DE PARECIDAS SON
+cor(merged$beta_SVO, merged$beta_STROKE, use = "complete.obs")
+# VER SI LOS SNP MÁS SIGNIFICATIVOS DE CE, REPLICAN EN STROKE
+top_svo <- merged[order(p_SVO)][1:1000]
+mean(top_svo$same_direction, na.rm = TRUE)
+summary(top_svo$p_STROKE)
+
+
+hits_svo <- merged[p_SVO < 1e-6][order(p_SVO)]
+hits_svo[, .(chromosome, position, alleleA, alleleB, beta_SVO, p_SVO, beta_STROKE, p_STROKE)][1:30]
+
+#crear PLOT
+library(ggplot2)
+
+set.seed(1)
+plot_df <- merged[sample(.N, 200000)]  # muestreo para que no reviente el plot
+
+ggplot(plot_df, aes(beta_STROKE, beta_SVO)) +
+  geom_point(alpha = 0.15) +
+  geom_hline(yintercept = 0) +
+  geom_vline(xintercept = 0) +
+  labs(x = "Beta STROKE (global)", y = "Beta SVO",
+       title = "Comparación de efectos: SVO vs STROKE")
+
+
+
+```
+```{r}
+### FA ###
+library(data.table)
+setwd("/home/lpstroke/Documentos/Leyre Franquet/proyecto_tfg/gen1-2/Both")
+getwd()
+## cargo las dos dataframes, la de stroke (la general) y la de CE (una subetiología)
+fa <- fread("Both/FA_snptest_both_clean.txt",
+            select = c("rsid","chromosome","position","alleleA","alleleB",
+                       "frequentist_add_beta_1","frequentist_add_se_1","frequentist_add_pvalue"))
+
+# arreglo los nombres de las columnas para que quede más claro
+setnames(fa,
+         old = c("frequentist_add_beta_1","frequentist_add_se_1","frequentist_add_pvalue"),
+         new = c("beta_FA","se_FA","p_FA"))
+
+# uno por SNP
+merged <- merge(
+  fa, stroke,
+  by = c("chromosome","position","alleleA","alleleB"),
+  all = FALSE
+)
+
+head(merged)
+dim(merged)
+# PARA SABER EL % DE LA MISMA DIRECCIÓN DEL EFECTO
+merged[, same_direction := sign(beta_FA) == sign(beta_STROKE)]
+mean(merged$same_direction, na.rm = TRUE)
+# CORRELACIÓN DE BETAS PARA VER CÓMO DE PARECIDAS SON
+cor(merged$beta_FA, merged$beta_STROKE, use = "complete.obs")
+# VER SI LOS SNP MÁS SIGNIFICATIVOS DE CE, REPLICAN EN STROKE
+top_fa <- merged[order(p_FA)][1:1000]
+mean(top_fa$same_direction, na.rm = TRUE)
+summary(top_fa$p_STROKE)
+
+
+hits_fa <- merged[p_FA < 1e-6][order(p_FA)]
+hits_fa[, .(chromosome, position, alleleA, alleleB, beta_FA, p_FA, beta_STROKE, p_STROKE)][1:30]
+
+#crear PLOT
+library(ggplot2)
+
+set.seed(1)
+plot_df <- merged[sample(.N, 200000)]  # muestreo para que no reviente el plot
+
+ggplot(plot_df, aes(beta_STROKE, beta_FA)) +
+  geom_point(alpha = 0.15) +
+  geom_hline(yintercept = 0) +
+  geom_vline(xintercept = 0) +
+  labs(x = "Beta STROKE (global)", y = "Beta FA",
+       title = "Comparación de efectos: FA vs STROKE")
+```
+```{r}
+### OT ###
+library(data.table)
+setwd("/home/lpstroke/Documentos/Leyre Franquet/proyecto_tfg/gen1-2/Both")
+getwd()
+## cargo las dos dataframes, la de stroke (la general) y la de CE (una subetiología)
+ot <- fread("Both/OT_snptest_both_clean.txt",
+            select = c("rsid","chromosome","position","alleleA","alleleB",
+                       "frequentist_add_beta_1","frequentist_add_se_1","frequentist_add_pvalue"))
+
+# arreglo los nombres de las columnas para que quede más claro
+setnames(ot,
+         old = c("frequentist_add_beta_1","frequentist_add_se_1","frequentist_add_pvalue"),
+         new = c("beta_OT","se_OT","p_OT"))
+
+# uno por SNP
+merged <- merge(
+  ot, stroke,
+  by = c("chromosome","position","alleleA","alleleB"),
+  all = FALSE
+)
+
+head(merged)
+dim(merged)
+# PARA SABER EL % DE LA MISMA DIRECCIÓN DEL EFECTO
+merged[, same_direction := sign(beta_OT) == sign(beta_STROKE)]
+mean(merged$same_direction, na.rm = TRUE)
+# CORRELACIÓN DE BETAS PARA VER CÓMO DE PARECIDAS SON
+cor(merged$beta_OT, merged$beta_STROKE, use = "complete.obs")
+# VER SI LOS SNP MÁS SIGNIFICATIVOS DE CE, REPLICAN EN STROKE
+top_ot <- merged[order(p_OT)][1:1000]
+mean(top_ot$same_direction, na.rm = TRUE)
+summary(top_ot$p_STROKE)
+
+
+hits_ot <- merged[p_OT < 1e-6][order(p_OT)]
+hits_ot[, .(chromosome, position, alleleA, alleleB, beta_OT, p_OT, beta_STROKE, p_STROKE)][1:30]
+
+#crear PLOT
+library(ggplot2)
+
+set.seed(1)
+plot_df <- merged[sample(.N, 200000)]  # muestreo para que no reviente el plot
+
+ggplot(plot_df, aes(beta_STROKE, beta_OT)) +
+  geom_point(alpha = 0.15) +
+  geom_hline(yintercept = 0) +
+  geom_vline(xintercept = 0) +
+  labs(x = "Beta STROKE (global)", y = "Beta OT",
+       title = "Comparación de efectos: OT vs STROKE")
+```
+
+```{r}
+### UND ###
+library(data.table)
+setwd("/home/lpstroke/Documentos/Leyre Franquet/proyecto_tfg/gen1-2/Both")
+getwd()
+## cargo las dos dataframes, la de stroke (la general) y la de CE (una subetiología)
+und <- fread("Both/UND_snptest_both_clean.txt",
+            select = c("rsid","chromosome","position","alleleA","alleleB",
+                       "frequentist_add_beta_1","frequentist_add_se_1","frequentist_add_pvalue"))
+
+# arreglo los nombres de las columnas para que quede más claro
+setnames(und,
+         old = c("frequentist_add_beta_1","frequentist_add_se_1","frequentist_add_pvalue"),
+         new = c("beta_UND","se_UND","p_UND"))
+
+# uno por SNP
+merged <- merge(
+  und, stroke,
+  by = c("chromosome","position","alleleA","alleleB"),
+  all = FALSE
+)
+
+head(merged)
+dim(merged)
+# PARA SABER EL % DE LA MISMA DIRECCIÓN DEL EFECTO
+merged[, same_direction := sign(beta_UND) == sign(beta_STROKE)]
+mean(merged$same_direction, na.rm = TRUE)
+# CORRELACIÓN DE BETAS PARA VER CÓMO DE PARECIDAS SON
+cor(merged$beta_UND, merged$beta_STROKE, use = "complete.obs")
+# VER SI LOS SNP MÁS SIGNIFICATIVOS DE CE, REPLICAN EN STROKE
+top_und <- merged[order(p_UND)][1:1000]
+mean(top_und$same_direction, na.rm = TRUE)
+summary(top_und$p_STROKE)
+
+
+hits_und <- merged[p_UND < 1e-6][order(p_UND)]
+hits_und[, .(chromosome, position, alleleA, alleleB, beta_UND, p_UND, beta_STROKE, p_STROKE)][1:30]
+
+#crear PLOT
+library(ggplot2)
+
+set.seed(1)
+plot_df <- merged[sample(.N, 200000)]  # muestreo para que no reviente el plot
+
+ggplot(plot_df, aes(beta_STROKE, beta_UND)) +
+  geom_point(alpha = 0.15) +
+  geom_hline(yintercept = 0) +
+  geom_vline(xintercept = 0) +
+  labs(x = "Beta STROKE (global)", y = "Beta UND",
+       title = "Comparación de efectos: UND vs STROKE")
+```
+```{r}
+### HACER MATRIZ DE CORRELACIÓN ENTE TODAS LAS SUBETIOLOGÍAS ###
+library(data.table)
+
+subtypes <- c("CE","LAA","SVO","FA","OT","UND","STROKE")
+
+read_beta <- function(sub){
+  dt <- fread(paste0("Both/", sub, "_snptest_both_clean.txt"),
+              select = c("chromosome","position","alleleA","alleleB",
+                         "frequentist_add_beta_1"))
+  setnames(dt, "frequentist_add_beta_1", paste0("beta_", sub))
+  dt
+}
+
+# leer todos
+lst <- lapply(subtypes, read_beta)
+
+# merge secuencial por SNP (chr+pos+alelos)
+betas_all <- Reduce(function(x, y)
+  merge(x, y, by = c("chromosome","position","alleleA","alleleB"), all = FALSE),
+  lst
+)
+
+dim(betas_all)
+
+beta_mat <- as.matrix(betas_all[, paste0("beta_", subtypes), with = FALSE])
+
+cor_mat <- cor(beta_mat, use = "pairwise.complete.obs")
+cor_mat
+
+library(pheatmap)
+
+pheatmap(cor_mat,
+         display_numbers = TRUE,
+         number_format = "%.2f",
+         main = "Correlación de betas entre subetiologías")
+```
+```{r}
+subtypes <- c("CE","LAA","SVO","FA","OT","UND")
+
+for (sub in subtypes) {
+
+  cat("Procesando", sub, "\n")
+
+  dt <- fread(paste0("Both/", sub, "_snptest_both_clean.txt"),
+              select = c("chromosome","position","rsid","frequentist_add_pvalue"))
+
+  setnames(dt, "frequentist_add_pvalue", "p")
+
+  setorder(dt, p)
+
+  dt[, window := paste0(chromosome, ":", floor(position / 5e5))]
+
+  top10 <- dt[!duplicated(window)][1:10]
+
+  fwrite(top10[, .(chromosome, position, rsid, p)],
+         paste0(sub, "_top10_loci_GRCh38.tsv"),
+         sep = "\t")
+
+  rm(dt, top10)
+  gc()
+}
+
+```
+
+```
+```
+
+
+```
+

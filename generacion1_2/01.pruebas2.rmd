@@ -1,0 +1,772 @@
+---
+title: "01.pruebas2.rmd"
+author: "Leyre Franquet"
+date: "2026-02-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+```{r}
+dir.create("outputs", showWarnings = FALSE)
+dir.create("outputs/tables", recursive = TRUE, showWarnings = FALSE)
+dir.create("outputs/figures", recursive = TRUE, showWarnings = FALSE)
+
+
+library(data.table)
+
+sumstats <- fread(
+  "Both/STROKE_snptest_both_clean.txt",
+  select = c("rsid", "chromosome", "position", "alleleA", "alleleB",
+             "cases_total", "controls_total",
+             "frequentist_add_pvalue", "frequentist_add_beta_1", "frequentist_add_se_1")
+)
+
+# Quitar p-values NA y no válidos
+sumstats <- sumstats[!is.na(frequentist_add_pvalue)]
+sumstats <- sumstats[frequentist_add_pvalue > 0 & frequentist_add_pvalue <= 1]
+
+# Asegurar tipos numéricos
+sumstats[, chromosome := as.integer(chromosome)]
+sumstats[, position := as.integer(position)]
+
+# Resumen rápido (para anexos)
+summary_info <- sumstats[, .(
+  N_variants = .N,
+  N_chr = uniqueN(chromosome),
+  p_min = min(frequentist_add_pvalue),
+  p_median = median(frequentist_add_pvalue),
+  p_max = max(frequentist_add_pvalue)
+)]
+summary_info
+fwrite(summary_info, "outputs/tables/summary_sumstats.tsv", sep = "\t")
+
+```
+
+```{r}
+setorder(sumstats, frequentist_add_pvalue)
+top10 <- sumstats[1:10]
+
+# Guardar “raw”
+fwrite(top10, "outputs/tables/TOP10_snps_STROKE_raw.tsv", sep = "\t")
+
+# Versión presentable
+top10_pretty <- copy(top10)
+top10_pretty[, P_value := formatC(frequentist_add_pvalue, format = "e", digits = 2)]
+top10_pretty[, Beta := round(frequentist_add_beta_1, 4)]
+top10_pretty[, SE := round(frequentist_add_se_1, 4)]
+
+top10_pretty <- top10_pretty[, .(
+  SNP = rsid, Chr = chromosome, Position = position,
+  Allele_A = alleleA, Allele_B = alleleB,
+  Cases = cases_total, Controls = controls_total,
+  Beta, SE, `P-value` = P_value
+)]
+
+fwrite(top10_pretty, "outputs/tables/TOP10_snps_STROKE_pretty.tsv", sep = "\t")
+top10_pretty
+
+```
+```{r}
+
+library(data.table)
+
+# Asegurar tipos correctos y limpiar
+sumstats <- sumstats[!is.na(frequentist_add_pvalue) &
+                     frequentist_add_pvalue > 0 & frequentist_add_pvalue <= 1]
+
+sumstats[, chromosome := as.integer(chromosome)]
+sumstats[, position := as.numeric(position)]     # <- clave: numeric
+sumstats[, LOGP := -log10(frequentist_add_pvalue)]
+
+sumstats <- sumstats[!is.na(chromosome) & !is.na(position)]
+setorder(sumstats, chromosome, position)
+
+# Longitud por cromosoma (numeric) + starts (numeric)
+chr_info <- sumstats[, .(chr_len = max(position, na.rm = TRUE)), by = chromosome]
+setorder(chr_info, chromosome)
+chr_info[, chr_start := cumsum(shift(as.numeric(chr_len), fill = 0))]  # <- clave
+
+# Merge y pos_cum (numeric)
+sumstats <- merge(sumstats, chr_info[, .(chromosome, chr_start)], by = "chromosome", all.x = TRUE)
+sumstats[, pos_cum := as.numeric(position) + as.numeric(chr_start)]    # <- clave
+
+# Centros para etiquetas
+chr_centers <- sumstats[, .(center = (min(pos_cum, na.rm = TRUE) + max(pos_cum, na.rm = TRUE))/2),
+                        by = chromosome]
+setorder(chr_centers, chromosome)
+
+# Guardar figura
+dir.create("outputs/figures", recursive = TRUE, showWarnings = FALSE)
+
+png("outputs/figures/Manhattan_STROKE_allChr.png", width = 4200, height = 1800, res = 300)
+plot(sumstats$pos_cum, sumstats$LOGP,
+     pch = 20, cex = 0.35,
+     xaxt = "n",
+     xlab = "Cromosoma",
+     ylab = "-log10(p-value)",
+     main = "Manhattan plot (GWAS STROKE)")
+axis(1, at = chr_centers$center, labels = chr_centers$chromosome, cex.axis = 0.9)
+abline(h = -log10(5e-8), col = "red", lwd = 2)
+dev.off()
+
+# Abrir el archivo
+browseURL("outputs/figures/Manhattan_STROKE_allChr.png")
+
+```
+```{r}
+# Q-Q plot
+p <- sumstats$frequentist_add_pvalue
+p <- p[!is.na(p) & p > 0 & p <= 1]
+
+observed <- -log10(sort(p))
+expected <- -log10(ppoints(length(observed)))
+
+# Lambda GC (aprox): usa chi-cuadrado 1 df
+chisq <- qchisq(1 - p, df = 1)
+lambda_gc <- median(chisq) / qchisq(0.5, df = 1)
+lambda_gc
+
+# Guardar lambda
+fwrite(data.table(lambda_gc = lambda_gc), "outputs/tables/lambda_GC.tsv", sep = "\t")
+
+# Exportar figura
+png("outputs/figures/QQplot_STROKE.png", width = 2000, height = 2000, res = 300)
+plot(expected, observed, pch = 20, cex = 0.45,
+     xlab = "Expected -log10(p)",
+     ylab = "Observed -log10(p)",
+     main = paste0("Q-Q plot (lambdaGC = ", round(lambda_gc, 3), ")"))
+abline(0, 1, col = "red", lwd = 2)
+dev.off()
+
+```
+
+```{r}
+gws <- sumstats[frequentist_add_pvalue < 5e-8]
+gws[, .N]   # cuántos hay
+fwrite(gws, "outputs/tables/SNPs_p_lt_5e-8.tsv", sep = "\t")
+
+# Lead SNPs aproximados por ventanas de 1Mb (±500kb)
+lead <- copy(sumstats)
+setorder(lead, frequentist_add_pvalue)
+
+lead_snps <- lead[0]  # tabla vacía
+taken <- data.table(chromosome=integer(), start=integer(), end=integer())
+
+window <- 500000
+
+for(i in 1:nrow(lead)) {
+  chr <- lead$chromosome[i]
+  pos <- lead$position[i]
+  pval <- lead$frequentist_add_pvalue[i]
+
+  # si ya cae en una región tomada, saltar
+  if (nrow(taken[chromosome == chr & pos >= start & pos <= end]) > 0) next
+
+  # si no, añadirlo como lead y marcar región
+  lead_snps <- rbind(lead_snps, lead[i])
+  taken <- rbind(taken, data.table(chromosome = chr, start = pos - window, end = pos + window))
+
+  if (nrow(lead_snps) >= 20) break  # por ejemplo top 20 loci
+}
+
+lead_snps[, LOGP := -log10(frequentist_add_pvalue)]
+fwrite(lead_snps, "outputs/tables/LeadSNPs_window500kb_top20.tsv", sep = "\t")
+lead_snps[1:10]
+
+```
+```{r}
+lead1 <- lead_snps[1]
+chr <- lead1$chromosome
+pos0 <- lead1$position
+
+region <- sumstats[chromosome == chr & position >= (pos0 - 500000) & position <= (pos0 + 500000)]
+region[, LOGP := -log10(frequentist_add_pvalue)]
+
+png(sprintf("outputs/figures/LocusPlot_chr%s_%s.png", chr, pos0),
+    width = 2400, height = 1400, res = 300)
+
+plot(region$position, region$LOGP,
+     pch = 20, cex = 0.5,
+     xlab = paste0("Posición chr", chr),
+     ylab = "-log10(p)",
+     main = paste0("Locus plot chr", chr, " ±500kb alrededor del lead SNP"))
+abline(h = -log10(5e-8), col = "red", lwd = 2)
+abline(v = pos0, col = "blue", lwd = 2, lty = 2)
+
+dev.off()
+
+```
+```{r}
+### ANÁLISIS ESPECÍFICO DEL CROMOSOMA X (23) 
+## 1 ## HAGO UN MANHATTAN PLOT DEL CROMOSOMA X
+chrX <- sumstats[chromosome == 23]
+chrX[, LOGP := -log10(frequentist_add_pvalue)]
+
+# resumen
+chrX_sum <- data.table(
+  N_chrX = nrow(chrX),
+  N_sig_chrX = nrow(chrX[frequentist_add_pvalue < 5e-8]),
+  min_p_chrX = min(chrX$frequentist_add_pvalue)
+)
+chrX_sum
+fwrite(chrX_sum, "outputs/tables/chrX_summary.tsv", sep="\t")
+
+# plot
+png("outputs/figures/Manhattan_chrX.png", width=2400, height=1400, res=300)
+plot(chrX$position, chrX$LOGP, pch=20, cex=0.5,
+     main="Manhattan plot cromosoma X",
+     xlab="Posición (chrX)", ylab="-log10(p)")
+abline(h=-log10(5e-8), col="red", lwd=2)
+dev.off()
+
+## 2 ## quiero saber cuantos SNPs hay en chrX y cuántos de ellos son significativos
+chrX <- sumstats[chromosome == 23]
+
+summary_chrX <- data.table(
+  N_total_chrX = nrow(chrX),
+  N_sig_5e8 = nrow(chrX[frequentist_add_pvalue < 5e-8]),
+  N_sig_1e5 = nrow(chrX[frequentist_add_pvalue < 1e-5]),
+  min_p_chrX = min(chrX$frequentist_add_pvalue)
+)
+
+summary_chrX
+
+install.packages("gridExtra")   # solo si no lo tienes
+library(gridExtra)
+library(grid)
+
+png("outputs/figures/summary_chrX.png",
+    width = 2200,
+    height = 800,
+    res = 300)
+
+grid.table(summary_chrX,
+           rows = NULL,
+           theme = ttheme_minimal(base_size = 16))
+
+dev.off()
+
+summary_chrX_pretty <- copy(summary_chrX)
+setnames(summary_chrX_pretty,
+         old = c("N_total_chrX", "N_sig_5e8", "N_sig_1e5", "min_p_chrX"),
+         new = c("Total SNPs (chrX)",
+                 "SNPs p < 5×10⁻⁸",
+                 "SNPs p < 1×10⁻⁵",
+                 "Valor mínimo de p"))
+summary_chrX_pretty
+summary_chrX_pretty[, `Valor mínimo de p` :=
+  formatC(`Valor mínimo de p`, format="e", digits=2)]
+png("outputs/figures/summary_chrX_pretty.png",
+    width = 2600, height = 1000, res = 300)
+
+grid.table(summary_chrX_pretty,
+           rows = NULL,
+           theme = ttheme_minimal(base_size = 18))
+
+dev.off()
+
+## 3 ## hago un QQ plot solo para el chrX
+pX <- chrX$frequentist_add_pvalue
+pX <- pX[pX > 0 & pX <= 1]
+
+observedX <- -log10(sort(pX))
+expectedX <- -log10(ppoints(length(observedX)))
+
+png("outputs/figures/QQplot_chrX.png", width=2000, height=2000, res=300)
+plot(expectedX, observedX,
+     pch=20, cex=0.6,
+     xlab="Expected -log10(p)",
+     ylab="Observed -log10(p)",
+     main="Q-Q plot cromosoma X")
+abline(0,1,col="red",lwd=2)
+dev.off()
+
+## 4 ## Calculo el lambdaGC solo para el chrX --> Si es lambdaGC en chrX > que el global puede sugerir diferencias sexo-específicas
+chisqX <- qchisq(1 - pX, df=1)
+lambdaX <- median(chisqX) / qchisq(0.5, df=1)
+lambdaX
+
+## 5 ## Comparo el chrX vs autosomas
+# Añadir columna indicando tipo de cromosoma
+sumstats[, chr_type := ifelse(chromosome == 23, "X", "Autosome")]
+
+comparison <- sumstats[, .(
+  N = .N,
+  min_p = min(frequentist_add_pvalue),
+  median_p = median(frequentist_add_pvalue)
+), by = chr_type]
+
+comparison
+#para descargarlo en png
+dir.create("outputs/figures", recursive = TRUE, showWarnings = FALSE)
+comparison_pretty <- copy(comparison)
+
+setnames(comparison_pretty,
+         old = c("chr_type", "N", "min_p", "median_p"),
+         new = c("Tipo de cromosoma",
+                 "Número de SNPs",
+                 "Valor mínimo de p",
+                 "Valor mediano de p"))
+library(gridExtra)
+library(grid)
+
+png("outputs/figures/comparison_chrX_vs_autosomes.png",
+    width = 3000,
+    height = 1200,
+    res = 300)
+
+grid.table(comparison_pretty,
+           rows = NULL,
+           theme = ttheme_minimal(base_size = 18))
+
+dev.off()
+png("outputs/figures/comparison_chrX_vs_autosomes.png",
+    width = 3200,
+    height = 1400,
+    res = 300)
+
+grid.newpage()
+
+pushViewport(viewport(y = 0.9, height = 0.15))
+grid.text("Comparación cromosoma X vs autosomas",
+          gp = gpar(fontsize = 22, fontface = "bold"))
+popViewport()
+
+pushViewport(viewport(y = 0.45, height = 0.75))
+grid.table(comparison_pretty,
+           rows = NULL,
+           theme = ttheme_minimal(base_size = 18))
+popViewport()
+
+dev.off()
+
+## 6 ## para buscar regiones enriquecidas en X
+chrX_hits <- chrX[frequentist_add_pvalue < 1e-5]
+chrX_hits[order(frequentist_add_pvalue)][1:20]
+
+library(data.table)
+
+chrX <- sumstats[chromosome == 23]
+chrX <- chrX[frequentist_add_pvalue > 0 & frequentist_add_pvalue <= 1]
+chrX[, LOGP := -log10(frequentist_add_pvalue)]
+
+hitsX <- chrX[frequentist_add_pvalue < 1e-5]
+nrow(hitsX)
+fwrite(hitsX, "outputs/tables/chrX_hits_p_lt_1e-5.tsv", sep="\t")
+
+setorder(hitsX, position)
+
+gap <- 250000  # 250 kb (puedes usar 500 kb si quieres)
+hitsX[, region_id := cumsum(c(TRUE, diff(position) > gap))]
+
+setorder(hitsX, position)
+
+gap <- 250000  # 250 kb (puedes usar 500 kb si quieres)
+hitsX[, region_id := cumsum(c(TRUE, diff(position) > gap))]
+regionsX <- hitsX[, .(
+  chr = 23,
+  start = min(position),
+  end = max(position),
+  n_snps = .N,
+  lead_pos = position[which.min(frequentist_add_pvalue)],
+  lead_snp = rsid[which.min(frequentist_add_pvalue)],
+  lead_p = min(frequentist_add_pvalue)
+), by = region_id]
+
+setorder(regionsX, lead_p)
+
+regionsX
+
+
+fwrite(regionsX, "outputs/tables/chrX_regions_enriched_p_lt_1e-5_gap250kb.tsv", sep="\t")
+
+bin_size <- 1000000  # 1 Mb
+
+chrX[, bin := floor(position / bin_size) * bin_size]
+enrichment_bins <- chrX[, .(
+  n_total = .N,
+  n_hits = sum(frequentist_add_pvalue < 1e-5),
+  min_p = min(frequentist_add_pvalue)
+), by = bin][order(bin)]
+
+fwrite(enrichment_bins, "outputs/tables/chrX_enrichment_bins_1Mb.tsv", sep="\t")
+
+png("outputs/figures/chrX_enrichment_bins_1Mb.png", width=2600, height=1400, res=300)
+plot(enrichment_bins$bin, enrichment_bins$n_hits, type="h",
+     xlab="Posición (bins de 1Mb en chrX)", ylab="N SNPs con p < 1e-5",
+     main="Enriquecimiento de señal en cromosoma X (p < 1e-5)")
+dev.off()
+
+regions_top <- regionsX[1:min(3, .N)]
+regions_top
+
+make_locus_plot <- function(chr, center_pos, window=500000, outname="locus.png"){
+  reg <- chrX[position >= (center_pos - window) & position <= (center_pos + window)]
+  reg[, LOGP := -log10(frequentist_add_pvalue)]
+  
+  png(outname, width=2400, height=1400, res=300)
+  plot(reg$position, reg$LOGP, pch=20, cex=0.5,
+       xlab=paste0("Posición chr", chr),
+       ylab="-log10(p)",
+       main=paste0("Locus chr", chr, " ±", window/1000, "kb alrededor del lead"))
+  abline(h=-log10(5e-8), col="red", lwd=2)
+  abline(v=center_pos, col="blue", lwd=2, lty=2)
+  dev.off()
+}
+
+for(i in 1:nrow(regions_top)){
+  make_locus_plot(
+    chr = 23,
+    center_pos = regions_top$lead_pos[i],
+    window = 500000,
+    outname = sprintf("outputs/figures/Locus_chrX_%s.png", regions_top$lead_pos[i])
+  )
+}
+
+## 7 ## PARA EVALUAR LA DIRECCIÓN DEL EFECTO EN X
+chrX[, sign := ifelse(frequentist_add_beta_1 > 0, "Positive", "Negative")]
+
+table(chrX$sign)
+chrX_sig <- chrX[frequentist_add_pvalue < 1e-5]
+table(chrX_sig$sign)
+binom.test(9, 10, p=0.5) # me da un p-value de 0.02 < 0.05
+
+## 8 ## para analizar si x tiene más o menos señal de la esperada
+propX <- nrow(chrX[frequentist_add_pvalue < 1e-5]) / nrow(chrX)
+propAuto <- nrow(sumstats[chromosome != 23 & frequentist_add_pvalue < 1e-5]) /
+            nrow(sumstats[chromosome != 23])
+
+propX
+propAuto # esto me suguere que: En el cromosoma X, la proporción de SNPs con p < 1e-5 es aproximadamente 2.4 veces mayor que en los autosomas -->  el chr X presenta una mayor densidad relativa de señaels en comparacion con los autosomas
+
+x_success <- nrow(chrX[frequentist_add_pvalue < 1e-5])
+x_total <- nrow(chrX)
+
+auto_success <- nrow(sumstats[chromosome != 23 & frequentist_add_pvalue < 1e-5])
+auto_total <- nrow(sumstats[chromosome != 23])
+
+prop.test(c(x_success, auto_success),
+          c(x_total, auto_total)) # me da un p value = 0.01176 < 0.05 --> Hay evidencia estadística de enriquecimiento de señal sugestiva en el cromosoma X respecto a los autosomas.
+
+```
+
+```{r}
+### estratificar el chrX por sexo
+## primero importamos el dataset de la mastertable
+mt_gen_1_2 <- generacion1_2_mastertable
+rm(generacion1_2_mastertable)
+
+table(mt_gen_1_2$Gender, useNA = "ifany")
+library(dplyr)
+
+mt_gen_1_2 <- mt_gen_1_2 %>%
+  mutate(Gender = trimws(tolower(Gender)))  # "female" / "male"
+
+females <- mt_gen_1_2 %>%
+  filter(Gender == "female") %>%
+  select(FID, IID) %>%
+  distinct()
+
+males <- mt_gen_1_2 %>%
+  filter(Gender == "male") %>%
+  select(FID, IID) %>%
+  distinct()
+
+nrow(females)
+nrow(males)
+
+write.table(females, "keep_females.txt",
+            row.names = FALSE, col.names = FALSE, quote = FALSE)
+
+write.table(males, "keep_males.txt",
+            row.names = FALSE, col.names = FALSE, quote = FALSE)
+
+
+library(dplyr)
+library(ggplot2)
+
+mt_gen_1_2 %>%
+  count(Gender) %>%
+  mutate(pct = round(100 * n / sum(n), 1)) %>%
+  ggplot(aes(x = Gender, y = n, fill = Gender)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(pct, "%")),
+            vjust = -0.5,
+            size = 5) +
+  theme_minimal() +
+  labs(title = "Distribución por sexo en GEN1-2",
+       x = "Sexo",
+       y = "Número de individuos")
+
+library(dplyr)
+
+mt_gen_1_2 %>%
+  group_by(Gender) %>%
+  summarise(
+    total = n(),
+    casos = sum(ISQ_stroke == "Yes"),
+    proporcion = round(100 * casos / total, 2)
+  )
+
+tabla <- table(mt_gen_1_2$Gender, mt_gen_1_2$ISQ_stroke)
+
+chisq.test(tabla)
+
+install.packages("epitools")
+library(epitools)
+
+oddsratio(tabla)
+
+mt_gen_1_2$ISQ_stroke <- factor(mt_gen_1_2$ISQ_stroke,
+                                levels = c("No", "Yes"))
+
+modelo2 <- glm(ISQ_stroke ~ Gender + Age,
+               data = mt_gen_1_2,
+               family = binomial)
+
+mt_gen_1_2$ISQ_stroke <- factor(mt_gen_1_2$ISQ_stroke,
+                                levels = c("No", "Yes"))
+
+mt_gen_1_2$Gender <- relevel(factor(mt_gen_1_2$Gender), ref = "female")
+
+modelo2 <- glm(ISQ_stroke ~ Gender + Age,
+               data = mt_gen_1_2,
+               family = binomial)
+edad_media <- mean(mt_gen_1_2$Age, na.rm = TRUE)
+
+newdata <- data.frame(
+  Gender = c("female", "male"),
+  Age = edad_media
+)
+
+newdata$probabilidad <- predict(modelo2,
+                                newdata,
+                                type = "response")
+library(ggplot2)
+
+ggplot(newdata, aes(x = Gender, y = probabilidad, fill = Gender)) +
+  geom_bar(stat = "identity") +
+  ylim(0, 1) +
+  labs(title = "Probabilidad ajustada de ictus por sexo",
+       y = "Probabilidad estimada") +
+  theme_minimal()
+
+
+modelo2 <- glm(ISQ_stroke ~ Gender + Age, data = df, family = binomial)
+summary(modelo2)
+edades <- seq(min(df$Age), max(df$Age), length.out = 100)
+
+newdata2 <- expand.grid(
+  Age = edades,
+  Gender = factor(c("female", "male"), levels = c("female", "male"))
+)
+
+newdata2$prob <- predict(modelo2, newdata = newdata2, type = "response")
+ggplot(newdata2, aes(x = Age, y = prob, color = Gender)) +
+  geom_line(linewidth = 1.2) +
+  labs(title = "Probabilidad de ictus según edad y sexo (modelo ajustado)",
+       y = "Probabilidad estimada", x = "Edad") +
+  theme_minimal()
+
+
+
+OR <- exp(cbind(OR = coef(modelo2), confint(modelo2)))
+OR
+# Extraer OR e IC
+OR_tab <- as.data.frame(exp(cbind(OR = coef(modelo2),
+                                  confint(modelo2))))
+
+OR_tab$Variable <- rownames(OR_tab)
+
+# Quitamos el intercept (no interesa)
+OR_tab <- OR_tab[OR_tab$Variable != "(Intercept)", ]
+
+OR_tab
+
+library(ggplot2)
+
+p_forest <- ggplot(OR_tab,
+                   aes(x = Variable,
+                       y = OR,
+                       ymin = `2.5 %`,
+                       ymax = `97.5 %`)) +
+  geom_pointrange(size = 1) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "red") +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Odds Ratio ajustado (modelo logístico)",
+       y = "Odds Ratio (IC 95%)",
+       x = "")
+
+p_forest
+ggsave("forest_plot_OR_ajustado.pdf",
+       plot = p_forest,
+       width = 6,
+       height = 4)
+
+
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+summary(df$Age)
+
+df %>%
+  mutate(grupo_edad = cut(Age, breaks = c(0,40,50,60,70,80,90,120), right = FALSE)) %>%
+  count(grupo_edad)
+p_hist <- ggplot(df, aes(x = Age, fill = ISQ_stroke)) +
+  geom_histogram(binwidth = 5, position = "stack") +
+  facet_wrap(~Gender, ncol = 1) +
+  theme_minimal() +
+  labs(title = "Distribución de edades (por sexo) y estado de ictus",
+       x = "Edad", y = "N")
+
+p_hist
+
+
+df$pred <- predict(modelo2, type = "response")
+
+calib <- df %>%
+  mutate(bin = cut(Age, breaks = c(0,40,50,60,70,80,90,120), right = FALSE)) %>%
+  group_by(bin) %>%
+  summarise(
+    n = n(),
+    obs = mean(ISQ_stroke == "Yes"),
+    pred = mean(pred),
+    .groups = "drop"
+  )
+
+calib
+p_calib <- ggplot(calib, aes(x = bin)) +
+  geom_point(aes(y = obs), size = 3) +
+  geom_line(aes(y = obs, group = 1)) +
+  geom_point(aes(y = pred), shape = 1, size = 3) +
+  geom_line(aes(y = pred, group = 1), linetype = "dashed") +
+  theme_minimal() +
+  labs(title = "Calibración por grupos de edad",
+       subtitle = "Puntos sólidos = observado | círculos vacíos = predicho (media del modelo)",
+       x = "Grupo de edad", y = "Proporción / probabilidad") +
+  coord_cartesian(ylim = c(0, 1))
+
+p_calib
+
+
+edades <- seq(min(df$Age), max(df$Age), length.out = 200)
+
+newdata2 <- expand.grid(
+  Age = edades,
+  Gender = levels(df$Gender)
+)
+
+pred_link <- predict(modelo2, newdata = newdata2, type = "link", se.fit = TRUE)
+
+newdata2 <- newdata2 %>%
+  mutate(
+    fit = pred_link$fit,
+    se  = pred_link$se.fit,
+    prob = plogis(fit),
+    lo = plogis(fit - 1.96*se),
+    hi = plogis(fit + 1.96*se)
+  )
+p_curve_ci <- ggplot(newdata2, aes(x = Age, y = prob, color = Gender, fill = Gender)) +
+  geom_ribbon(aes(ymin = lo, ymax = hi), alpha = 0.2, color = NA) +
+  geom_line(linewidth = 1.2) +
+  theme_minimal() +
+  labs(title = "Probabilidad estimada de ictus según edad y sexo",
+       subtitle = "Bandas = IC 95% del modelo",
+       x = "Edad", y = "Probabilidad estimada") +
+  coord_cartesian(ylim = c(0, 1))
+
+p_curve_ci
+
+
+modelo_int <- glm(ISQ_stroke ~ Gender * Age, data = df, family = binomial)
+
+anova(modelo2, modelo_int, test = "Chisq")
+summary(modelo_int)
+
+edad0 <- 50
+new_compare <- data.frame(Age = c(50, 60, 70), Gender = "female")
+new_compare$prob <- predict(modelo2, newdata = new_compare, type = "response")
+
+OR_10 <- exp(coef(modelo2)[["Age"]] * 10)
+
+p_age2 <- ggplot(new_compare, aes(x = factor(Age), y = prob)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  geom_text(aes(label = paste0(round(prob*100,1), "%")), vjust = -0.5, size = 5) +
+  annotate("text", x = 2, y = 0.9,
+           label = paste0("Cada 10 años: odds × ", round(OR_10, 2)),
+           color = "red", size = 3.3) +
+  theme_minimal() +
+  labs(title = "Incremento estimado del riesgo de ictus\nsegún la edad (modelo ajustado)",
+       x = "Edad", y = "Probabilidad estimada") +
+  coord_cartesian(ylim = c(0, 1))
+
+p_age2
+
+ggsave("01_hist_edades.pdf", p_hist, width = 8, height = 6)
+ggsave("02_calibracion.pdf", p_calib, width = 8, height = 5)
+ggsave("03_curva_sexo_ci.pdf", p_curve_ci, width = 8, height = 5)
+ggsave("04_barras_50_60_70.pdf", p_age2, width = 8, height = 5)
+install.packages("ragg")
+library(ragg)
+
+png("03_curva_sexo_ci.png", width = 2400, height = 1500, res = 300)
+print(p_curve_ci)
+dev.off()
+
+
+```
+```{r}
+df$grupo_edad_10 <- cut(
+  df$Age,
+  breaks = seq(floor(min(df$Age, na.rm = TRUE)/10)*10,
+               ceiling(max(df$Age, na.rm = TRUE)/10)*10,
+               by = 10),
+  right = FALSE
+)
+library(dplyr)
+
+df %>%
+  count(grupo_edad_10) %>%
+  arrange(grupo_edad_10)
+df %>%
+  count(grupo_edad_10, Gender) %>%
+  arrange(grupo_edad_10)
+df %>%
+  count(grupo_edad_10, ISQ_stroke) %>%
+  arrange(grupo_edad_10)
+ggplot(df, aes(x = grupo_edad_10)) +
+  geom_bar(fill = "steelblue") +
+  theme_minimal() +
+  labs(title = "Número de pacientes por franjas de edad (10 años)",
+       x = "Grupo de edad",
+       y = "Número de pacientes") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
